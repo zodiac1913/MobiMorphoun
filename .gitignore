@@ -1,0 +1,38 @@
+# Expo
+.expo/
+dist/
+node_modules/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# Native
+*.hprof
+
+# macOS
+.DS_Store
+
+# Env
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# Build
+android/app/build/
+android/.gradle/
+ios/Pods/
+ios/build/
+
+# Go build cache
+gofilters/vendor/
+
+# Swap files
+*.swp
+*.swo
