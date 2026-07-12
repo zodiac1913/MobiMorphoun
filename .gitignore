@@ -36,3 +36,7 @@ gofilters/vendor/
 # Swap files
 *.swp
 *.swo
+
+# Signing keys
+*.keystore
+!android/app/debug.keystore
