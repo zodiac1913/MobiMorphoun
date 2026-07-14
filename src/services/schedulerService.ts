@@ -128,4 +128,63 @@ export async function initializeSchedulers(): Promise<void> {
   // or the background scheduler handles it on the configured timer.
   // This prevents the app from fetching/flashing images every time
   // it mounts (including hot reloads during development).
+
+  // Start foreground timers for when the app is active
+  startForegroundTimers();
+}
+
+// Track interval IDs so we can clear them
+let wallpaperIntervalId: ReturnType<typeof setInterval> | null = null;
+let quoteIntervalId: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Start in-app foreground timers that fire while the app is running.
+ * Background fetch handles it when the app is closed.
+ */
+export function startForegroundTimers(): void {
+  const config = getConfig();
+
+  // Clear any existing timers
+  stopForegroundTimers();
+
+  // Wallpaper change timer
+  const wallpaperMs = config.changeMinutes * 60 * 1000;
+  wallpaperIntervalId = setInterval(async () => {
+    try {
+      logEntry('INFO', 'Scheduler', 'foregroundTimer', 'Wallpaper timer fired');
+      await generateNewWallpaper('ForegroundTimer');
+    } catch (err) {
+      console.warn('Foreground wallpaper timer error:', err);
+    }
+  }, wallpaperMs);
+
+  // Quote change timer (only if text overlay is on)
+  if (config.showTextOverlay) {
+    const quoteMs = config.textChangeMinutes * 60 * 1000;
+    quoteIntervalId = setInterval(async () => {
+      try {
+        logEntry('INFO', 'Scheduler', 'foregroundTimer', 'Quote timer fired');
+        await updateCurrentQuote();
+      } catch (err) {
+        console.warn('Foreground quote timer error:', err);
+      }
+    }, quoteMs);
+  }
+
+  logEntry('INFO', 'Scheduler', 'foregroundTimers',
+    `Started: wallpaper every ${config.changeMinutes}min, quote every ${config.textChangeMinutes}min`);
+}
+
+/**
+ * Stop foreground timers (call when app goes to background or settings change)
+ */
+export function stopForegroundTimers(): void {
+  if (wallpaperIntervalId !== null) {
+    clearInterval(wallpaperIntervalId);
+    wallpaperIntervalId = null;
+  }
+  if (quoteIntervalId !== null) {
+    clearInterval(quoteIntervalId);
+    quoteIntervalId = null;
+  }
 }

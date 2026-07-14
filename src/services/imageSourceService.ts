@@ -172,33 +172,40 @@ async function fetchCameraRollImage(source: ImageSource): Promise<FetchedImage> 
     }
 
     // Get total count of photos
-    const { totalCount } = await MediaLibrary.getAssetsAsync({
+    const countResult = await MediaLibrary.getAssetsAsync({
       mediaType: MediaLibrary.MediaType.photo,
-      first: 0,
+      first: 1,
     });
 
+    const totalCount = countResult.totalCount;
     if (totalCount === 0) {
       throw new Error('No photos in camera roll');
     }
 
-    // Pick a random offset and grab one photo
-    const randomOffset = Math.floor(Math.random() * totalCount);
+    // Fetch a batch and pick a random one from it
+    // Limit batch size for performance but large enough for variety
+    const batchSize = Math.min(totalCount, 100);
     const { assets } = await MediaLibrary.getAssetsAsync({
       mediaType: MediaLibrary.MediaType.photo,
-      first: 1,
+      first: batchSize,
       sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-      ...(randomOffset > 0 ? { after: String(randomOffset) } : {}),
     });
 
     if (assets.length === 0) {
       throw new Error('Could not retrieve photo from library');
     }
 
-    const asset = assets[0];
+    // Pick a random photo from the batch
+    const randomIndex = Math.floor(Math.random() * assets.length);
+    const asset = assets[randomIndex];
 
     // Get the local URI for the asset
     const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.id);
     const localUri = assetInfo.localUri || asset.uri;
+
+    if (!localUri) {
+      throw new Error('Could not get local URI for photo');
+    }
 
     // Copy to our wallpaper directory so we have a stable reference
     await ensureWallpaperDir();
