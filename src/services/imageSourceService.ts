@@ -66,12 +66,17 @@ export async function fetchRandomImage(): Promise<FetchedImage> {
       }
     } catch (err) {
       console.warn(`Source "${source.name}" failed:`, err);
+      // For Camera Roll, log more detail since this is the most common user source
+      if (source.name === 'CameraRoll') {
+        console.error('CAMERA ROLL DETAILED ERROR:', JSON.stringify(err));
+      }
       // Try next source
       continue;
     }
   }
 
   // All sources failed — last resort PicSum
+  console.warn('All enabled sources failed, using PicSum fallback');
   return fetchPicSumImage(enabledSources[0]);
 }
 
@@ -162,62 +167,69 @@ async function fetchUnsplashImage(source: ImageSource): Promise<FetchedImage> {
  * Uses expo-media-library to pick a random photo from the device
  */
 async function fetchCameraRollImage(source: ImageSource): Promise<FetchedImage> {
-  try {
-    const MediaLibrary = require('expo-media-library');
+  const MediaLibrary = require('expo-media-library');
 
-    // Request permission
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== 'granted') {
-      throw new Error('Photo library permission not granted');
-    }
-
-    // Get total count of photos
-    const countResult = await MediaLibrary.getAssetsAsync({
-      mediaType: MediaLibrary.MediaType.photo,
-      first: 1,
-    });
-
-    const totalCount = countResult.totalCount;
-    if (totalCount === 0) {
-      throw new Error('No photos in camera roll');
-    }
-
-    // Fetch a batch and pick a random one from it
-    // Limit batch size for performance but large enough for variety
-    const batchSize = Math.min(totalCount, 100);
-    const { assets } = await MediaLibrary.getAssetsAsync({
-      mediaType: MediaLibrary.MediaType.photo,
-      first: batchSize,
-      sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-    });
-
-    if (assets.length === 0) {
-      throw new Error('Could not retrieve photo from library');
-    }
-
-    // Pick a random photo from the batch
-    const randomIndex = Math.floor(Math.random() * assets.length);
-    const asset = assets[randomIndex];
-
-    // Get the local URI for the asset
-    const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.id);
-    const localUri = assetInfo.localUri || asset.uri;
-
-    if (!localUri) {
-      throw new Error('Could not get local URI for photo');
-    }
-
-    // Copy to our wallpaper directory so we have a stable reference
-    await ensureWallpaperDir();
-    const ext = localUri.split('.').pop() || 'jpg';
-    const destUri = `${WALLPAPER_DIR}cameraroll_${Date.now()}.${ext}`;
-    await FileSystem.copyAsync({ from: localUri, to: destUri });
-
-    return { uri: destUri, source, originalUrl: localUri };
-  } catch (err) {
-    console.warn('Camera Roll fetch failed:', err);
-    throw err;
+  // Request permission explicitly
+  const permResult = await MediaLibrary.requestPermissionsAsync();
+  console.log('Camera Roll permission status:', permResult.status);
+  if (permResult.status !== 'granted') {
+    throw new Error(`Photo library permission: ${permResult.status}`);
   }
+
+  // Get photos
+  const { assets, totalCount } = await MediaLibrary.getAssetsAsync({
+    mediaType: MediaLibrary.MediaType.photo,
+    first: 100,
+    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+  });
+
+  console.log(`Camera Roll: found ${totalCount} total, fetched ${assets.length} assets`);
+
+  if (!assets || assets.length === 0) {
+    throw new Error(`No photos found (totalCount: ${totalCount})`);
+  }
+
+  // Pick a random photo
+  const randomIndex = Math.floor(Math.random() * assets.length);
+  const asset = assets[randomIndex];
+  console.log(`Camera Roll: picked asset ${asset.id}, uri: ${asset.uri}, filename: ${asset.filename}`);
+
+  // Try to get the local file URI
+  let localUri: string | null = null;
+
+  try {
+    const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.id);
+    localUri = assetInfo.localUri || assetInfo.uri || null;
+    console.log('Camera Roll assetInfo localUri:', localUri);
+  } catch (infoErr) {
+    console.warn('getAssetInfoAsync failed, using asset.uri:', infoErr);
+    localUri = asset.uri;
+  }
+
+  if (!localUri) {
+    // Fallback: use the asset URI directly (content:// on Android)
+    localUri = asset.uri;
+  }
+
+  if (!localUri) {
+    throw new Error('Could not resolve any URI for the photo');
+  }
+
+  // Copy to our wallpaper directory
+  await ensureWallpaperDir();
+  const ext = (asset.filename || 'photo.jpg').split('.').pop() || 'jpg';
+  const destUri = `${WALLPAPER_DIR}cameraroll_${Date.now()}.${ext}`;
+
+  try {
+    await FileSystem.copyAsync({ from: localUri, to: destUri });
+  } catch (copyErr) {
+    // If localUri copy fails, try with the raw asset.uri
+    console.warn('Copy from localUri failed, trying asset.uri:', copyErr);
+    await FileSystem.copyAsync({ from: asset.uri, to: destUri });
+  }
+
+  console.log('Camera Roll: successfully copied to', destUri);
+  return { uri: destUri, source, originalUrl: localUri };
 }
 
 /**
