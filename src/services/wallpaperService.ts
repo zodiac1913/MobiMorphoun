@@ -6,7 +6,7 @@
  */
 
 import * as FileSystem from 'expo-file-system';
-import { Platform, NativeModules } from 'react-native';
+import { Platform, NativeModules, Dimensions } from 'react-native';
 import { MobiConfig, PicHistory, WallpaperTarget } from '../types/config';
 import { getConfig, saveConfig, updateConfigField } from './configService';
 import { fetchRandomImage, cleanupOldWallpapers, FetchedImage } from './imageSourceService';
@@ -85,6 +85,8 @@ export async function generateNewWallpaper(caller: string = 'Manual'): Promise<W
         // Use bundled font — Roboto on Android system
         const fontPath = '/system/fonts/Roboto-Regular.ttf';
 
+        const { width: screenW } = Dimensions.get('screen');
+
         const quotedPath: string = await NativeModules.GoFilters.renderQuote(
           inputPath,
           outputDir,
@@ -98,6 +100,7 @@ export async function generateNewWallpaper(caller: string = 'Manual'): Promise<W
           config.quoteAppearanceRandom ? randomDarkHexColor() : config.quoteBackgroundColor,
           parseInt(config.quoteBackgroundOpacity, 10) || 180,
           config.quoteMaxChars || 200,
+          Math.round(screenW),
         );
         finalUri = quotedPath.startsWith('/') ? `file://${quotedPath}` : quotedPath;
         logEntry('INFO', 'WallpaperService', 'generateNewWallpaper', 'Quote rendered on image');

@@ -65,6 +65,7 @@ public class GoFiltersModule extends ReactContextBaseJavaModule {
         String bgColorHex,
         int bgOpacity,
         int maxChars,
+        int screenWidth,
         Promise promise
     ) {
         try {
@@ -73,7 +74,8 @@ public class GoFiltersModule extends ReactContextBaseJavaModule {
                 statement, author, boxLocation,
                 fontSize, maxFontSize,
                 textColorHex, bgColorHex,
-                (long) bgOpacity, (long) maxChars
+                (long) bgOpacity, (long) maxChars,
+                (long) screenWidth
             );
             promise.resolve(result);
         } catch (Exception e) {

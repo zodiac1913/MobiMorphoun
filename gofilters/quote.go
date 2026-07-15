@@ -25,6 +25,7 @@ import (
 // bgColorHex: background box color as #RRGGBB
 // bgOpacity: background opacity 0-255
 // outputDir: where to write the result
+// screenWidth: actual device screen width in pixels (for multi-page wallpaper constraint)
 func RenderQuote(
 	inputPath, outputDir, fontPath string,
 	statement, author, boxLocation string,
@@ -32,6 +33,7 @@ func RenderQuote(
 	textColorHex, bgColorHex string,
 	bgOpacity int,
 	maxChars int,
+	screenWidth int,
 ) (string, error) {
 	img, err := loadImage(inputPath)
 	if err != nil {
@@ -59,10 +61,20 @@ func RenderQuote(
 		return inputPath, fmt.Errorf("no font available")
 	}
 
-	// Calculate box dimensions — ensure it fits within visible area
-	// Use 75% width, variable height based on text, centered horizontally
-	boxW := imgW * 0.75
-	maxBoxH := imgH * 0.35 // Never exceed 35% of image height
+	// Calculate box dimensions — constrain to a single screen viewport
+	// On Android, wallpapers can be wider than one screen (multi-page scrolling)
+	// We place the quote within a single viewport width, centered on the image
+	viewportW := float64(screenWidth)
+	if viewportW <= 0 || viewportW > imgW {
+		viewportW = imgW
+	}
+
+	// The visible viewport is centered on the image
+	viewportLeft := (imgW - viewportW) / 2
+
+	// Box is 80% of the viewport width (not the full image width)
+	boxW := viewportW * 0.80
+	maxBoxH := imgH * 0.30 // Never exceed 30% of image height
 	padding := 24.0
 
 	// Auto-fit font size if not specified
@@ -91,14 +103,29 @@ func RenderQuote(
 		boxH = maxBoxH
 	}
 
-	// Position box — ensure it stays fully within visible screen
-	boxX, boxY := calculateBoxPosition(boxLocation, imgW, imgH, boxW, boxH)
-	// Clamp to ensure box is fully visible
-	if boxX < 10 {
-		boxX = 10
+	// Position box — center within the visible viewport, not the full image
+	// Horizontally: center within viewport
+	boxX := viewportLeft + (viewportW-boxW)/2
+
+	// Vertically: center third of the screen (between 33% and 66%)
+	centerStart := imgH * 0.33
+	centerEnd := imgH * 0.66
+	boxY := centerStart + (centerEnd-centerStart-boxH)/2
+
+	if boxLocation == "random" {
+		// Slight vertical randomization within the center third
+		rangeY := centerEnd - centerStart - boxH
+		if rangeY > 0 {
+			boxY = centerStart + rand.Float64()*rangeY
+		}
 	}
-	if boxX+boxW > imgW-10 {
-		boxX = imgW - boxW - 10
+
+	// Clamp to ensure box stays within visible viewport
+	if boxX < viewportLeft+10 {
+		boxX = viewportLeft + 10
+	}
+	if boxX+boxW > viewportLeft+viewportW-10 {
+		boxX = viewportLeft + viewportW - boxW - 10
 	}
 	if boxY < 10 {
 		boxY = 10
@@ -175,27 +202,6 @@ func autoFitFont(dc *gg.Context, fontPath, statement, author string, maxW, maxH,
 		}
 	}
 	return minSize
-}
-
-func calculateBoxPosition(location string, imgW, imgH, boxW, boxH float64) (float64, float64) {
-	// Center horizontally always
-	boxX := (imgW - boxW) / 2
-
-	// Place in the vertical center third of the screen (between 33% and 66%)
-	centerStart := imgH * 0.33
-	centerEnd := imgH * 0.66
-	// Center the box within that middle third
-	boxY := centerStart + (centerEnd-centerStart-boxH)/2
-
-	if location == "random" {
-		// Slight vertical randomization within the center third
-		rangeY := centerEnd - centerStart - boxH
-		if rangeY > 0 {
-			boxY = centerStart + rand.Float64()*rangeY
-		}
-	}
-
-	return boxX, boxY
 }
 
 func parseHexColor(hex string) (uint8, uint8, uint8) {
