@@ -25,6 +25,7 @@ import {
   getCurrentWallpaperInfo,
 } from '../../src/services/wallpaperService';
 import { PicHistory } from '../../src/types/config';
+import { APP_VERSION } from '../../src/version';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -107,6 +108,12 @@ export default function WallpaperScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Header: title + version */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Wallpaper</Text>
+        <Text style={styles.headerVersion}>v{APP_VERSION}</Text>
+      </View>
+
       {/* Action Buttons — top of screen */}
       <View style={styles.actions}>
         <TouchableOpacity
@@ -213,6 +220,21 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  headerTitle: {
+    color: '#e2e8f0',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  headerVersion: {
+    color: '#64748b',
+    fontSize: 12,
   },
   actions: {
     flexDirection: 'row',
