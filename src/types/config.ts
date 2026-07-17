@@ -40,6 +40,7 @@ export interface PicHistory {
   picNum: number;
   originName: string;
   saveName: string;
+  originalLocalUri: string;
   imageItem: ImageSource;
   filter: string;
   filterVortices: PicHistoryVortex[];
@@ -206,6 +207,7 @@ export const DEFAULT_CONFIG: MobiConfig = {
     { use: true, name: 'RichardBaxter', title: 'Richard Baxter', location: 'quotes/richardBaxter.json', citation: '', creators: 'Richard Baxter', info: 'Puritan quotes', inherent: true },
     { use: false, name: 'Talmud', title: 'Talmud', location: 'quotes/21TalmudQuotes.json', citation: '', creators: 'Talmudic sages', info: 'Talmud wisdom', inherent: true },
     { use: false, name: 'WillRogers', title: 'Will Rogers', location: 'quotes/willRogers.json', citation: '', creators: 'Will Rogers', info: 'Will Rogers humor', inherent: true },
+    { use: true, name: 'SenatorKennedy', title: 'Senator John Kennedy', location: 'quotes/senatorKennedy.json', citation: '', creators: 'Sen. John Kennedy (R-LA)', info: 'Louisiana senator quips and one-liners', inherent: true },
   ],
   textFontFile: 'default',
   textBoxLocation: 'random',

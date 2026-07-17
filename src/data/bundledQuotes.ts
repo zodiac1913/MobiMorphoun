@@ -22,6 +22,7 @@ const patton: Quote[] = require('../../assets/quotes/patton.json');
 const richardBaxter: Quote[] = require('../../assets/quotes/richardBaxter.json');
 const talmud: Quote[] = require('../../assets/quotes/21TalmudQuotes.json');
 const willRogers: Quote[] = require('../../assets/quotes/willRogers.json');
+const senatorKennedy: Quote[] = require('../../assets/quotes/senatorKennedy.json');
 
 export interface BundledLibrary {
   key: string;
@@ -46,4 +47,5 @@ export const BUNDLED_LIBRARIES: Record<string, Quote[]> = {
   'richardbaxter': richardBaxter,
   'talmud': talmud,
   'willrogers': willRogers,
+  'senatorkennedy': senatorKennedy,
 };

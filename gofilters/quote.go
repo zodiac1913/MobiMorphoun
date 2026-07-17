@@ -44,10 +44,8 @@ func RenderQuote(
 	imgW := float64(bounds.Dx())
 	imgH := float64(bounds.Dy())
 
-	// Truncate statement if over maxChars
-	if maxChars > 0 && len(statement) > maxChars {
-		statement = statement[:maxChars-3] + "..."
-	}
+	// Statement is pre-filtered by maxChars on the JS side — no truncation needed here
+	_ = maxChars
 
 	// Create drawing context
 	dc := gg.NewContextForImage(img)

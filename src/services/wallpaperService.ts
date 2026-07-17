@@ -9,7 +9,7 @@ import * as FileSystem from 'expo-file-system';
 import { Platform, NativeModules, Dimensions } from 'react-native';
 import { MobiConfig, PicHistory, WallpaperTarget } from '../types/config';
 import { getConfig, saveConfig, updateConfigField } from './configService';
-import { fetchRandomImage, cleanupOldWallpapers, FetchedImage } from './imageSourceService';
+import { fetchRandomImage, cleanupOldWallpapers, FetchedImage, saveOriginalToHistory } from './imageSourceService';
 import { applyRandomFilter, applyFilterFromHistory, FilterName } from './filterService';
 import { getRandomQuote, updateCurrentQuote, Quote } from './quoteService';
 import { logEntry, LogLevel } from './logService';
@@ -70,6 +70,15 @@ export async function generateNewWallpaper(caller: string = 'Manual'): Promise<W
     // Step 3: Apply a random filter
     const filterResult = await applyRandomFilter(fetchedImage.uri);
 
+    // Step 3b: Save original (unfiltered) to history slot 0
+    // Shift existing history down first (done after building picHistory below)
+    let originalLocalPath = fetchedImage.uri;
+    try {
+      originalLocalPath = await saveOriginalToHistory(fetchedImage.uri, 0);
+    } catch (err) {
+      console.warn('Failed to save original to history slot:', err);
+    }
+
     // Step 4: Get a quote if text overlay is enabled
     let quote: Quote | null = null;
     if (config.showTextOverlay) {
@@ -118,6 +127,7 @@ export async function generateNewWallpaper(caller: string = 'Manual'): Promise<W
       picNum: 0,
       originName: fetchedImage.originalUrl,
       saveName: finalUri,
+      originalLocalUri: originalLocalPath,
       imageItem: fetchedImage.source,
       filter: filterResult.filterName,
       filterVortices: [],

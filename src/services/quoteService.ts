@@ -18,7 +18,8 @@ const QUOTES_DIR = `${FileSystem.documentDirectory}quotes/`;
 const FAVORITES_QUOTES_DIR = `${FileSystem.documentDirectory}favorites/quotes/`;
 
 /**
- * Get a random quote from all enabled libraries, respecting max char limit
+ * Get a random quote from all enabled libraries, respecting max char limit.
+ * Only picks quotes whose FULL statement fits within maxChars — never truncates.
  */
 export async function getRandomQuote(): Promise<Quote> {
   const config = getConfig();
@@ -29,35 +30,20 @@ export async function getRandomQuote(): Promise<Quote> {
     return { statement: 'Enable a quote library in settings.', author: 'MobiMorphoun' };
   }
 
-  // Pick a random library
-  const library = enabledLibraries[Math.floor(Math.random() * enabledLibraries.length)];
-
-  // Try to load quotes from the library
-  const quotes = await loadQuoteLibrary(library.name, library.location);
-
-  if (quotes.length === 0) {
-    return { statement: 'No quotes available.', author: 'MobiMorphoun' };
+  // Collect all quotes from all enabled libraries that fit the char limit
+  let allFitting: Quote[] = [];
+  for (const library of enabledLibraries) {
+    const quotes = await loadQuoteLibrary(library.name, library.location);
+    const fitting = quotes.filter(q => q.statement.length <= maxChars);
+    allFitting = allFitting.concat(fitting);
   }
 
-  // Filter to quotes that fit the character limit
-  const fitting = quotes.filter(q => q.statement.length <= maxChars);
-
-  // If nothing fits, pick the shortest available quote
-  if (fitting.length === 0) {
-    const sorted = [...quotes].sort((a, b) => a.statement.length - b.statement.length);
-    const shortest = sorted[0];
-    // Truncate if still over limit
-    if (shortest.statement.length > maxChars) {
-      return {
-        statement: shortest.statement.substring(0, maxChars - 3) + '...',
-        author: shortest.author,
-      };
-    }
-    return shortest;
+  if (allFitting.length === 0) {
+    return { statement: 'No quotes fit the character limit. Try increasing it.', author: 'MobiMorphoun' };
   }
 
-  // Pick a random quote from those that fit
-  return fitting[Math.floor(Math.random() * fitting.length)];
+  // Pick a random one
+  return allFitting[Math.floor(Math.random() * allFitting.length)];
 }
 
 /**

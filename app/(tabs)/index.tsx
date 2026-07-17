@@ -38,42 +38,38 @@ export default function WallpaperScreen() {
     'DejaVuSans-Bold': require('../../assets/fonts/DejaVuSans-Bold.ttf'),
   });
 
-  // Refresh display when tab comes into focus (reads memory, no fetch)
+  // Refresh display when tab comes into focus
   useFocusEffect(
     useCallback(() => {
       const info = getCurrentWallpaperInfo();
       setCurrent(info);
-      if (info?.saveName) {
-        validateAndSetImage(info.saveName);
+      if (info?.originalLocalUri || info?.saveName) {
+        // Show the original unfiltered pic in the preview
+        let uri = info.originalLocalUri || info.saveName;
+        if (!uri.startsWith('file://') && !uri.startsWith('http')) {
+          uri = `file://${uri}`;
+        }
+        console.log('WALLPAPER PANE: displaying URI:', uri);
+        setImageUri(uri);
       } else {
+        console.log('WALLPAPER PANE: no saveName in picHistory');
         setImageUri(null);
       }
     }, [])
   );
-
-  async function validateAndSetImage(uri: string) {
-    try {
-      // Ensure the URI has file:// prefix
-      const normalizedUri = uri.startsWith('file://') ? uri : `file://${uri}`;
-      const fileInfo = await FileSystem.getInfoAsync(normalizedUri.replace('file://', ''));
-      if (fileInfo.exists) {
-        // Add cache buster to force Image to reload
-        setImageUri(normalizedUri + '?t=' + Date.now());
-      } else {
-        setImageUri(null);
-      }
-    } catch {
-      setImageUri(null);
-    }
-  }
 
   const handleNext = useCallback(async () => {
     setLoading(true);
     const result = await generateNewWallpaper('ManualNext');
     if (result.success && result.picHistory) {
       setCurrent(result.picHistory);
-      if (result.picHistory.saveName) {
-        await validateAndSetImage(result.picHistory.saveName);
+      let uri = result.picHistory.originalLocalUri || result.picHistory.saveName;
+      if (uri) {
+        if (!uri.startsWith('file://') && !uri.startsWith('http')) {
+          uri = `file://${uri}`;
+        }
+        console.log('WALLPAPER PANE NEXT: displaying URI:', uri);
+        setImageUri(uri);
       }
     } else {
       Alert.alert('Error', result.error || 'Failed to change wallpaper');
@@ -86,8 +82,13 @@ export default function WallpaperScreen() {
     const result = await recallWallpaper(1);
     if (result.success && result.picHistory) {
       setCurrent(result.picHistory);
-      if (result.picHistory.saveName) {
-        await validateAndSetImage(result.picHistory.saveName);
+      let uri = result.picHistory.originalLocalUri || result.picHistory.saveName;
+      if (uri) {
+        if (!uri.startsWith('file://') && !uri.startsWith('http')) {
+          uri = `file://${uri}`;
+        }
+        console.log('WALLPAPER PANE LAST: displaying URI:', uri);
+        setImageUri(uri);
       }
     } else {
       Alert.alert('Info', result.error || 'No previous wallpaper available');
@@ -158,7 +159,7 @@ export default function WallpaperScreen() {
           <View style={styles.infoChip}>
             <Ionicons name="color-filter-outline" size={14} color="#8b5cf6" />
             <Text style={styles.infoChipText}>
-              {current.filter || 'Original'}
+              {formatFilterName(current.filter) || 'Original'}
             </Text>
           </View>
         </View>
@@ -192,6 +193,17 @@ export default function WallpaperScreen() {
       </View>
     </ScrollView>
   );
+}
+
+function formatFilterName(filter: string | undefined): string {
+  if (!filter) return 'Original';
+  const nameMap: Record<string, string> = {
+    'BlurSoft': 'Blur (Soft)',
+    'BlurHard': 'Blur (Hard)',
+    'JigsawPuzzle': 'Jigsaw',
+    'Monochrome': 'Mono',
+  };
+  return nameMap[filter] || filter;
 }
 
 const styles = StyleSheet.create({
@@ -233,12 +245,14 @@ const styles = StyleSheet.create({
   },
   infoRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 10,
   },
   infoChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: 5,
     backgroundColor: '#1a1a2e',
     paddingHorizontal: 12,
@@ -248,6 +262,7 @@ const styles = StyleSheet.create({
   infoChipText: {
     color: '#e2e8f0',
     fontSize: 13,
+    flexShrink: 0,
   },
   quoteCard: {
     backgroundColor: '#1a1a2e',

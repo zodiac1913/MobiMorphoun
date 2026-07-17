@@ -276,16 +276,22 @@ async function downloadImage(url: string, filename: string): Promise<string> {
 }
 
 /**
- * Clean up old wallpaper files (keep last 5)
+ * Clean up old wallpaper files — keep only named originals and current filtered
+ * We use fixed filenames: originalPic0-4.png for history, filteredPic.png for current
  */
 export async function cleanupOldWallpapers(): Promise<void> {
   try {
     await ensureWallpaperDir();
     const files = await FileSystem.readDirectoryAsync(WALLPAPER_DIR);
-    const imageFiles = files.filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f));
 
+    // Keep: originalPic0-4, filteredPic, and any cameraroll_ files that are recent
+    const keepPatterns = /^(originalPic\d|filteredPic)\./;
+    const imageFiles = files.filter(f =>
+      /\.(jpg|jpeg|png|webp)$/i.test(f) && !keepPatterns.test(f)
+    );
+
+    // Remove unnamed temp files older than 20
     if (imageFiles.length > 10) {
-      // Sort by name (contains timestamp) and remove oldest
       const sorted = imageFiles.sort();
       const toRemove = sorted.slice(0, sorted.length - 10);
       for (const file of toRemove) {
@@ -295,4 +301,22 @@ export async function cleanupOldWallpapers(): Promise<void> {
   } catch (err) {
     console.warn('Cleanup failed:', err);
   }
+}
+
+/**
+ * Save the original (unfiltered) image to a numbered history slot.
+ * Returns the stable local path.
+ */
+export async function saveOriginalToHistory(sourceUri: string, historyIndex: number): Promise<string> {
+  await ensureWallpaperDir();
+  const destPath = `${WALLPAPER_DIR}originalPic${historyIndex}.png`;
+
+  // Remove old file at this slot
+  try {
+    await FileSystem.deleteAsync(destPath, { idempotent: true });
+  } catch { /* fine */ }
+
+  // Copy source to the stable slot
+  await FileSystem.copyAsync({ from: sourceUri, to: destPath });
+  return destPath;
 }
