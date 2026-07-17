@@ -7,6 +7,7 @@
 
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
+import { Platform, NativeModules } from 'react-native';
 import { getConfig, saveConfig } from './configService';
 import { generateNewWallpaper } from './wallpaperService';
 import { updateCurrentQuote } from './quoteService';
@@ -111,6 +112,19 @@ export async function checkBackgroundStatus(): Promise<BackgroundFetch.Backgroun
  * Initialize all schedulers on app startup
  */
 export async function initializeSchedulers(): Promise<void> {
+  const config = getConfig();
+
+  // Start the native foreground service (reliable background timer)
+  if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
+    try {
+      await NativeModules.WallpaperServiceManager.startService(config.changeMinutes);
+      logEntry('INFO', 'Scheduler', 'init', `Native service started (${config.changeMinutes} min)`);
+    } catch (err) {
+      console.warn('Failed to start native wallpaper service:', err);
+    }
+  }
+
+  // Register background fetch as additional fallback
   try {
     await registerWallpaperScheduler();
   } catch (err) {
@@ -122,12 +136,6 @@ export async function initializeSchedulers(): Promise<void> {
   } catch (err) {
     console.warn('Failed to register quote scheduler:', err);
   }
-
-  // NOTE: We do NOT auto-change wallpaper on startup here.
-  // The user triggers wallpaper changes manually from the UI,
-  // or the background scheduler handles it on the configured timer.
-  // This prevents the app from fetching/flashing images every time
-  // it mounts (including hot reloads during development).
 
   // Start foreground timers for when the app is active
   startForegroundTimers();
@@ -187,4 +195,23 @@ export function stopForegroundTimers(): void {
     clearInterval(quoteIntervalId);
     quoteIntervalId = null;
   }
+}
+
+/**
+ * Restart the native service with a new interval (call when settings change)
+ */
+export async function restartServiceWithInterval(minutes: number): Promise<void> {
+  if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
+    try {
+      await NativeModules.WallpaperServiceManager.stopService();
+      await NativeModules.WallpaperServiceManager.startService(minutes);
+      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (${minutes} min)`);
+    } catch (err) {
+      console.warn('Failed to restart service:', err);
+    }
+  }
+
+  // Also reset foreground timers
+  stopForegroundTimers();
+  startForegroundTimers();
 }

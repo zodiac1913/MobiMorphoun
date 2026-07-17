@@ -9,6 +9,8 @@
 - The version lives in `src/version.ts` as `APP_VERSION`.
 - This is the ONLY place the version string is defined.
 - It is displayed in the Wallpaper pane header (top right).
+- It is displayed in the Info pane under "Version".
+- Both import from `src/version.ts` — never hardcode a version string elsewhere.
 
 ## Release Process (MANDATORY steps in order)
 1. Update `src/version.ts` with today's date and correct increment.

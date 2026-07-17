@@ -5,6 +5,7 @@
 
 import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { APP_VERSION } from '../../src/version';
 
 export default function InfoScreen() {
   return (
@@ -63,7 +64,7 @@ export default function InfoScreen() {
 
       <View style={styles.card}>
         <Text style={styles.subheading}>Version</Text>
-        <Text style={styles.body}>MobiMorphoun v1.0.0</Text>
+        <Text style={styles.body}>MobiMorphoun v{APP_VERSION}</Text>
         <Text style={styles.bodyDim}>
           Filters powered by Go (same engine as desktop Metamorphoun)
         </Text>
