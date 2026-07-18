@@ -70,11 +70,12 @@ export async function generateNewWallpaper(caller: string = 'Manual'): Promise<W
     // Step 3: Apply a random filter
     const filterResult = await applyRandomFilter(fetchedImage.uri);
 
-    // Step 3b: Save original (unfiltered) to history slot 0
-    // Shift existing history down first (done after building picHistory below)
+    // Step 3b: Save original (unfiltered) to a stable file for display
     let originalLocalPath = fetchedImage.uri;
     try {
-      originalLocalPath = await saveOriginalToHistory(fetchedImage.uri, 0);
+      const saved = await saveOriginalToHistory(fetchedImage.uri, 0);
+      // Ensure it's a full file:// URI
+      originalLocalPath = saved.startsWith('file://') ? saved : `file://${saved}`;
     } catch (err) {
       console.warn('Failed to save original to history slot:', err);
     }

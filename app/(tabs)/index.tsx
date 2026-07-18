@@ -55,12 +55,11 @@ export default function WallpaperScreen() {
   function refreshDisplay() {
     const info = getCurrentWallpaperInfo();
     setCurrent(info);
-    if (info?.originalLocalUri || info?.saveName) {
-      let uri = info.originalLocalUri || info.saveName;
-      if (!uri.startsWith('file://') && !uri.startsWith('http')) {
-        uri = `file://${uri}`;
-      }
-      setImageUri(uri);
+    // Show the original unfiltered pic (before filter/quote)
+    const uri = info?.originalLocalUri || info?.saveName || null;
+    if (uri) {
+      const normalized = uri.startsWith('/') ? 'file://' + uri : uri;
+      setImageUri(normalized);
     } else {
       setImageUri(null);
     }
