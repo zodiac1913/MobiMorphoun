@@ -3,7 +3,7 @@
  * Mirrors Metamorphoun's system tray actions.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -42,36 +42,35 @@ export default function WallpaperScreen() {
   // Refresh display when tab comes into focus
   useFocusEffect(
     useCallback(() => {
-      const info = getCurrentWallpaperInfo();
-      setCurrent(info);
-      if (info?.originalLocalUri || info?.saveName) {
-        // Show the original unfiltered pic in the preview
-        let uri = info.originalLocalUri || info.saveName;
-        if (!uri.startsWith('file://') && !uri.startsWith('http')) {
-          uri = `file://${uri}`;
-        }
-        console.log('WALLPAPER PANE: displaying URI:', uri);
-        setImageUri(uri);
-      } else {
-        console.log('WALLPAPER PANE: no saveName in picHistory');
-        setImageUri(null);
-      }
+      refreshDisplay();
     }, [])
   );
+
+  // Also poll for changes every 10 seconds (catches background service updates)
+  useEffect(() => {
+    const interval = setInterval(refreshDisplay, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function refreshDisplay() {
+    const info = getCurrentWallpaperInfo();
+    setCurrent(info);
+    if (info?.originalLocalUri || info?.saveName) {
+      let uri = info.originalLocalUri || info.saveName;
+      if (!uri.startsWith('file://') && !uri.startsWith('http')) {
+        uri = `file://${uri}`;
+      }
+      setImageUri(uri);
+    } else {
+      setImageUri(null);
+    }
+  }
 
   const handleNext = useCallback(async () => {
     setLoading(true);
     const result = await generateNewWallpaper('ManualNext');
-    if (result.success && result.picHistory) {
-      setCurrent(result.picHistory);
-      let uri = result.picHistory.originalLocalUri || result.picHistory.saveName;
-      if (uri) {
-        if (!uri.startsWith('file://') && !uri.startsWith('http')) {
-          uri = `file://${uri}`;
-        }
-        console.log('WALLPAPER PANE NEXT: displaying URI:', uri);
-        setImageUri(uri);
-      }
+    if (result.success) {
+      refreshDisplay();
     } else {
       Alert.alert('Error', result.error || 'Failed to change wallpaper');
     }
@@ -81,16 +80,8 @@ export default function WallpaperScreen() {
   const handleLast = useCallback(async () => {
     setLoading(true);
     const result = await recallWallpaper(1);
-    if (result.success && result.picHistory) {
-      setCurrent(result.picHistory);
-      let uri = result.picHistory.originalLocalUri || result.picHistory.saveName;
-      if (uri) {
-        if (!uri.startsWith('file://') && !uri.startsWith('http')) {
-          uri = `file://${uri}`;
-        }
-        console.log('WALLPAPER PANE LAST: displaying URI:', uri);
-        setImageUri(uri);
-      }
+    if (result.success) {
+      refreshDisplay();
     } else {
       Alert.alert('Info', result.error || 'No previous wallpaper available');
     }
@@ -204,13 +195,8 @@ export default function WallpaperScreen() {
 
 function formatFilterName(filter: string | undefined): string {
   if (!filter) return 'Original';
-  const nameMap: Record<string, string> = {
-    'BlurSoft': 'Blur (Soft)',
-    'BlurHard': 'Blur (Hard)',
-    'JigsawPuzzle': 'Jigsaw',
-    'Monochrome': 'Mono',
-  };
-  return nameMap[filter] || filter;
+  // Add spaces before capital letters: "BlurSoft" → "Blur Soft"
+  return filter.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
 const styles = StyleSheet.create({
