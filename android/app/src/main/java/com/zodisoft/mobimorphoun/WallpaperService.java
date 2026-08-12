@@ -104,14 +104,23 @@ public class WallpaperService extends Service {
 
     /**
      * Full wallpaper change pipeline — runs entirely in native.
-     * 1. Fetch random image from PicSum (reliable, always available)
-     * 2. Apply random Go filter
-     * 3. Set as wallpaper via WallpaperManager
+     * 1. Check network availability
+     * 2. Fetch random image from PicSum
+     * 3. Apply random Go filter
+     * 4. Set as wallpaper via WallpaperManager
      */
     private void changeWallpaper() {
         new Thread(() -> {
             try {
                 Log.i(TAG, "Changing wallpaper...");
+
+                // Check network
+                if (!isNetworkAvailable()) {
+                    Log.w(TAG, "No network — skipping wallpaper change");
+                    showNotification("Wallpaper change skipped — no network");
+                    return;
+                }
+
                 String wallpaperDir = getFilesDir().getAbsolutePath() + "/wallpapers";
                 File dir = new File(wallpaperDir);
                 if (!dir.exists()) dir.mkdirs();
@@ -124,14 +133,14 @@ public class WallpaperService extends Service {
                 }
 
                 // Step 2: Pick a random filter and apply via Go
-                String[] filters = {"Original", "BlurSoft", "BlurHard", "Pixelate",
+                String[] filters = {"Original", "Original", "Original",
+                        "BlurSoft", "BlurHard", "Pixelate",
                         "Monochrome", "Cartoon", "Wavy", "Vortex", "Mosaic", "Oilify"};
                 String filter = filters[(int) (Math.random() * filters.length)];
 
                 String filteredPath = imagePath;
                 if (!filter.equals("Original")) {
                     try {
-                        // Get screen dimensions
                         int screenW = getResources().getDisplayMetrics().widthPixels;
                         int screenH = getResources().getDisplayMetrics().heightPixels;
                         filteredPath = Gofilters.applyFilter(
@@ -153,7 +162,7 @@ public class WallpaperService extends Service {
                         WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
                 bitmap.recycle();
 
-                Log.i(TAG, "Wallpaper changed: filter=" + filter);
+                Log.i(TAG, "Wallpaper changed successfully: filter=" + filter);
 
                 // Cleanup old files (keep last 5)
                 cleanupOldFiles(dir);
@@ -162,6 +171,28 @@ public class WallpaperService extends Service {
                 Log.e(TAG, "Wallpaper change failed", e);
             }
         }).start();
+    }
+
+    private boolean isNetworkAvailable() {
+        android.net.ConnectivityManager cm =
+                (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (cm == null) return false;
+        android.net.NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        return activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+    }
+
+    private void showNotification(String text) {
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("MobiMorphoun")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_menu_gallery)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
+                .build();
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify(NOTIFICATION_ID, notification);
+        }
     }
 
     /**
