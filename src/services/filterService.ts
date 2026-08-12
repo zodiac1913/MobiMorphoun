@@ -17,7 +17,6 @@
 
 import { manipulateAsync, FlipType, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
-import { Skia } from '@shopify/react-native-skia';
 import { NativeModules, Platform, Dimensions } from 'react-native';
 import { MobiConfig, PicHistory } from '../types/config';
 import { getConfig } from './configService';
@@ -197,61 +196,17 @@ async function applyPixelate(
 }
 
 /**
- * Monochrome: uses Skia color matrix to desaturate.
- * This is a real grayscale conversion.
+ * Monochrome: on Android the Go native module handles this properly.
+ * JS fallback just re-encodes (no real grayscale without Skia).
  */
 async function applyMonochrome(
   imageUri: string,
   filterName: FilterName
 ): Promise<FilterResult> {
-  try {
-    const imageData = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const skData = Skia.Data.fromBase64(imageData);
-    const skImage = Skia.Image.MakeImageFromEncoded(skData);
-
-    if (!skImage) throw new Error('Failed to decode image for monochrome');
-
-    const w = skImage.width();
-    const h = skImage.height();
-    const surface = Skia.Surface.MakeOffscreen(w, h);
-    if (!surface) throw new Error('Failed to create offscreen surface');
-
-    const canvas = surface.getCanvas();
-
-    // Grayscale color matrix
-    const grayscaleMatrix = [
-      0.2126, 0.7152, 0.0722, 0, 0,
-      0.2126, 0.7152, 0.0722, 0, 0,
-      0.2126, 0.7152, 0.0722, 0, 0,
-      0,      0,      0,      1, 0,
-    ];
-
-    const paint = Skia.Paint();
-    const cf = Skia.ColorFilter.MakeMatrix(grayscaleMatrix);
-    paint.setColorFilter(cf);
-    canvas.drawImage(skImage, 0, 0, paint);
-
-    surface.flush();
-    const snapshot = surface.makeImageSnapshot();
-    if (!snapshot) throw new Error('Failed to snapshot');
-
-    const encoded = snapshot.encodeToBase64();
-    const outputUri = `${FileSystem.documentDirectory}wallpapers/mono_${Date.now()}.jpg`;
-    await FileSystem.writeAsStringAsync(outputUri, encoded, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    return { uri: outputUri, filterName, intensity: 1 };
-  } catch (err) {
-    // Fallback: just return original if Skia fails
-    console.warn('Monochrome Skia failed, using fallback:', err);
-    const result = await manipulateAsync(imageUri, [], {
-      format: SaveFormat.JPEG, compress: 0.9,
-    });
-    return { uri: result.uri, filterName, intensity: 1 };
-  }
+  const result = await manipulateAsync(imageUri, [], {
+    format: SaveFormat.JPEG, compress: 0.9,
+  });
+  return { uri: result.uri, filterName, intensity: 1 };
 }
 
 /**
