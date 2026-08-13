@@ -55,8 +55,8 @@ export default function WallpaperScreen() {
   function refreshDisplay() {
     const info = getCurrentWallpaperInfo();
     setCurrent(info);
-    // Show the original unfiltered pic (before filter/quote)
-    const uri = info?.originalLocalUri || info?.saveName || null;
+    // Show the actual wallpaper that was set (filtered + quoted)
+    const uri = info?.saveName || null;
     if (uri) {
       const normalized = uri.startsWith('/') ? 'file://' + uri : uri;
       setImageUri(normalized);
