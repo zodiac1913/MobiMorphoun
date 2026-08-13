@@ -1,10 +1,12 @@
 name: Build Android APK
 
-on:
-  push:
-    tags:
-      - '20*'
-  workflow_dispatch:
+# Disabled — builds done locally. Re-enable when CI is needed.
+# on:
+#   push:
+#     tags:
+#       - '20*'
+#   workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
   build:
