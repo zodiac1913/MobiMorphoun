@@ -3,7 +3,7 @@
  * Configures scheduling, image sources, filters, quote overlay, etc.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ScrollView,
   Switch,
   TouchableOpacity,
+  Pressable,
   Alert,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
@@ -18,6 +19,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { MobiConfig, WallpaperTarget, ImageSizing, TextBoxLocation } from '../../src/types/config';
 import { getConfig, saveConfig, resetConfig } from '../../src/services/configService';
 import { restartServiceWithInterval } from '../../src/services/schedulerService';
+
+/**
+ * Button that fires on tap and repeats while held down.
+ */
+function RepeatButton({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startRepeat = () => {
+    onPress();
+    intervalRef.current = setInterval(onPress, 150);
+  };
+
+  const stopRepeat = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  return (
+    <Pressable onPressIn={startRepeat} onPressOut={stopRepeat}>
+      {children}
+    </Pressable>
+  );
+}
 
 export default function SettingsScreen() {
   const [config, setLocalConfig] = useState<MobiConfig>(getConfig());

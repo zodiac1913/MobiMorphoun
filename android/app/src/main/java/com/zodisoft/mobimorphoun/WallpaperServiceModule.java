@@ -3,6 +3,7 @@ package com.zodisoft.mobimorphoun;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.util.Log;
 
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -31,12 +32,32 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void startService(int intervalMinutes, Promise promise) {
         try {
-            // Save interval to shared prefs so service can read it on restart
             SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
             prefs.edit().putInt("changeMinutes", intervalMinutes).apply();
 
             Intent intent = new Intent(reactContext, WallpaperService.class);
             intent.putExtra("intervalMinutes", intervalMinutes);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                reactContext.startForegroundService(intent);
+            } else {
+                reactContext.startService(intent);
+            }
+
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("SERVICE_ERROR", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Trigger an immediate wallpaper change (for "Next" button).
+     */
+    @ReactMethod
+    public void changeNow(Promise promise) {
+        try {
+            Intent intent = new Intent(reactContext, WallpaperService.class);
+            intent.setAction(WallpaperService.ACTION_CHANGE_NOW);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 reactContext.startForegroundService(intent);
@@ -65,13 +86,27 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
     }
 
     /**
-     * Check if the service is currently running.
+     * Read the wallpaper history JSON file.
      */
     @ReactMethod
-    public void isRunning(Promise promise) {
-        // Simple check via shared prefs flag
-        SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
-        boolean running = prefs.getBoolean("serviceRunning", false);
-        promise.resolve(running);
+    public void getHistory(Promise promise) {
+        try {
+            java.io.File histFile = new java.io.File(reactContext.getFilesDir(), "wallpaper_history.json");
+            Log.i("MobiWallpaper", "getHistory: file exists=" + histFile.exists() + " path=" + histFile.getAbsolutePath());
+            if (!histFile.exists()) {
+                promise.resolve("[]");
+                return;
+            }
+            java.io.FileInputStream fis = new java.io.FileInputStream(histFile);
+            byte[] data = new byte[(int) histFile.length()];
+            fis.read(data);
+            fis.close();
+            String json = new String(data);
+            Log.i("MobiWallpaper", "getHistory: returning " + json.length() + " chars");
+            promise.resolve(json);
+        } catch (Exception e) {
+            Log.e("MobiWallpaper", "getHistory failed", e);
+            promise.reject("READ_ERROR", e.getMessage(), e);
+        }
     }
 }

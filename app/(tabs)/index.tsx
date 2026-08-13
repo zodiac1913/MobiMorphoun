@@ -13,6 +13,7 @@ import {
   Alert,
   Dimensions,
   ScrollView,
+  NativeModules,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
@@ -53,27 +54,70 @@ export default function WallpaperScreen() {
   }, []);
 
   function refreshDisplay() {
-    const info = getCurrentWallpaperInfo();
-    setCurrent(info);
-    // Show the actual wallpaper that was set (filtered + quoted)
-    const uri = info?.saveName || null;
-    if (uri) {
-      const normalized = uri.startsWith('/') ? 'file://' + uri : uri;
-      setImageUri(normalized);
+    // Read wallpaper history from Java service's JSON file
+    if (NativeModules.WallpaperServiceManager) {
+      NativeModules.WallpaperServiceManager.getHistory().then((json: string) => {
+        try {
+          const history = JSON.parse(json);
+          if (history.length > 0) {
+            const latest = history[0];
+            setCurrent({
+              saveName: latest.saveName,
+              originalLocalUri: latest.originalLocalUri,
+              filter: latest.filter,
+              imageItem: { name: latest.source },
+            } as any);
+            const uri = latest.saveName;
+            if (uri) {
+              setImageUri(uri.startsWith('/') ? 'file://' + uri : uri);
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse history:', e);
+        }
+      }).catch(() => {
+        // Fallback to config-based display
+        const info = getCurrentWallpaperInfo();
+        setCurrent(info);
+        if (info?.saveName) {
+          const uri = info.saveName;
+          setImageUri(uri.startsWith('/') ? 'file://' + uri : uri);
+        }
+      });
     } else {
-      setImageUri(null);
+      const info = getCurrentWallpaperInfo();
+      setCurrent(info);
+      if (info?.saveName) {
+        const uri = info.saveName;
+        setImageUri(uri.startsWith('/') ? 'file://' + uri : uri);
+      }
     }
   }
 
   const handleNext = useCallback(async () => {
     setLoading(true);
-    const result = await generateNewWallpaper('ManualNext');
-    if (result.success) {
-      refreshDisplay();
-    } else {
-      Alert.alert('Error', result.error || 'Failed to change wallpaper');
+    try {
+      // Trigger Java service to change wallpaper
+      if (NativeModules.WallpaperServiceManager) {
+        await NativeModules.WallpaperServiceManager.changeNow();
+        // Wait a moment for the service to finish, then refresh display
+        setTimeout(() => {
+          refreshDisplay();
+          setLoading(false);
+        }, 4000);
+      } else {
+        // Fallback to JS path
+        const result = await generateNewWallpaper('ManualNext');
+        refreshDisplay();
+        setLoading(false);
+        if (!result.success) {
+          Alert.alert('Error', result.error || 'Failed');
+        }
+      }
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Error', String(err));
     }
-    setLoading(false);
   }, []);
 
   const handleLast = useCallback(async () => {

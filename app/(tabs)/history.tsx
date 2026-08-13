@@ -13,33 +13,40 @@ import {
   TouchableOpacity,
   Alert,
   Dimensions,
+  NativeModules,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { getConfig } from '../../src/services/configService';
-import { recallWallpaper } from '../../src/services/wallpaperService';
-import { PicHistory } from '../../src/types/config';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
+interface HistoryEntry {
+  saveName: string;
+  originalLocalUri: string;
+  filter: string;
+  source: string;
+  timestamp: number;
+}
+
 export default function HistoryScreen() {
-  const [history, setHistory] = useState<PicHistory[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   useFocusEffect(
     useCallback(() => {
-      const config = getConfig();
-      setHistory(config.picHistories || []);
+      if (NativeModules.WallpaperServiceManager) {
+        NativeModules.WallpaperServiceManager.getHistory().then((json: string) => {
+          try {
+            setHistory(JSON.parse(json));
+          } catch { setHistory([]); }
+        }).catch(() => setHistory([]));
+      }
     }, [])
   );
 
   const handleRecall = async (index: number) => {
-    const result = await recallWallpaper(index);
-    if (result.success) {
-      Alert.alert('Done', 'Wallpaper recalled!');
-    } else {
-      Alert.alert('Error', result.error || 'Failed to recall');
-    }
+    // TODO: implement recall from history
+    Alert.alert('Info', 'Recall not yet implemented for service-based history');
   };
 
   if (history.length === 0) {
@@ -70,7 +77,7 @@ export default function HistoryScreen() {
         >
           {item.saveName ? (
             <Image
-              source={{ uri: item.saveName }}
+              source={{ uri: item.saveName.startsWith('/') ? 'file://' + item.saveName : item.saveName }}
               style={styles.cardImage}
               resizeMode="cover"
             />
@@ -81,7 +88,7 @@ export default function HistoryScreen() {
           )}
           <View style={styles.cardInfo}>
             <Text style={styles.cardSource} numberOfLines={1}>
-              {item.imageItem?.name || 'Unknown'}
+              {item.source || 'Unknown'}
             </Text>
             <Text style={styles.cardFilter} numberOfLines={1}>
               {item.filter || 'Original'}
