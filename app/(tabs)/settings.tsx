@@ -17,7 +17,7 @@ import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MobiConfig, WallpaperTarget, ImageSizing, TextBoxLocation } from '../../src/types/config';
 import { getConfig, saveConfig, resetConfig } from '../../src/services/configService';
-import { registerWallpaperScheduler } from '../../src/services/schedulerService';
+import { restartServiceWithInterval } from '../../src/services/schedulerService';
 
 export default function SettingsScreen() {
   const [config, setLocalConfig] = useState<MobiConfig>(getConfig());
@@ -32,6 +32,11 @@ export default function SettingsScreen() {
     const updated = { ...config, [key]: value };
     setLocalConfig(updated);
     await saveConfig(updated);
+
+    // Restart service when wallpaper interval changes
+    if (key === 'changeMinutes') {
+      await restartServiceWithInterval(value as number);
+    }
   };
 
   const handleReset = () => {
@@ -72,14 +77,14 @@ export default function SettingsScreen() {
           value={
             <View style={styles.stepper}>
               <TouchableOpacity
-                onPress={() => updateField('changeMinutes', Math.max(5, config.changeMinutes - 5))}
+                onPress={() => updateField('changeMinutes', Math.max(1, config.changeMinutes - 1))}
                 accessibilityLabel="Decrease interval"
               >
                 <Ionicons name="remove-circle" size={28} color="#8b5cf6" />
               </TouchableOpacity>
               <Text style={styles.stepperValue}>{config.changeMinutes}</Text>
               <TouchableOpacity
-                onPress={() => updateField('changeMinutes', config.changeMinutes + 5)}
+                onPress={() => updateField('changeMinutes', config.changeMinutes + 1)}
                 accessibilityLabel="Increase interval"
               >
                 <Ionicons name="add-circle" size={28} color="#8b5cf6" />
@@ -146,14 +151,14 @@ export default function SettingsScreen() {
           value={
             <View style={styles.stepper}>
               <TouchableOpacity
-                onPress={() => updateField('textChangeMinutes', Math.max(5, config.textChangeMinutes - 5))}
+                onPress={() => updateField('textChangeMinutes', Math.max(1, config.textChangeMinutes - 1))}
                 accessibilityLabel="Decrease quote interval"
               >
                 <Ionicons name="remove-circle" size={28} color="#8b5cf6" />
               </TouchableOpacity>
               <Text style={styles.stepperValue}>{config.textChangeMinutes}</Text>
               <TouchableOpacity
-                onPress={() => updateField('textChangeMinutes', config.textChangeMinutes + 5)}
+                onPress={() => updateField('textChangeMinutes', config.textChangeMinutes + 1)}
                 accessibilityLabel="Increase quote interval"
               >
                 <Ionicons name="add-circle" size={28} color="#8b5cf6" />

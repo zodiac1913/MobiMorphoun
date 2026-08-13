@@ -11,6 +11,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
@@ -37,6 +38,7 @@ public class WallpaperService extends Service {
     private static final int NOTIFICATION_ID = 1001;
 
     private Handler handler;
+    private HandlerThread handlerThread;
     private Runnable wallpaperRunnable;
     private long intervalMs = 30 * 60 * 1000;
 
@@ -44,7 +46,10 @@ public class WallpaperService extends Service {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        handler = new Handler(Looper.getMainLooper());
+        // Dedicated background thread for timer — won't be affected by main thread
+        handlerThread = new HandlerThread("WallpaperTimer");
+        handlerThread.start();
+        handler = new Handler(handlerThread.getLooper());
     }
 
     @Override
@@ -96,6 +101,9 @@ public class WallpaperService extends Service {
         super.onDestroy();
         if (handler != null && wallpaperRunnable != null) {
             handler.removeCallbacks(wallpaperRunnable);
+        }
+        if (handlerThread != null) {
+            handlerThread.quitSafely();
         }
         SharedPreferences prefs = getSharedPreferences("mobimorphoun_prefs", MODE_PRIVATE);
         prefs.edit().putBoolean("serviceRunning", false).apply();
