@@ -40,8 +40,11 @@ public class WallpaperService extends Service {
 
     private Handler handler;
     private HandlerThread handlerThread;
-    private Runnable timerRunnable;
-    private long intervalMs = 5 * 60 * 1000;
+    private Runnable picTimerRunnable;
+    private Runnable quoteTimerRunnable;
+    private long picIntervalMs = 5 * 60 * 1000;
+    private long quoteIntervalMs = 2 * 60 * 1000;
+    private String currentFilteredPath = null; // Stable filtered image for quote re-renders
 
     @Override
     public void onCreate() {
@@ -63,32 +66,48 @@ public class WallpaperService extends Service {
             return START_STICKY;
         }
 
-        // Read interval
+        // Read intervals
         if (intent != null && intent.hasExtra("intervalMinutes")) {
-            int minutes = intent.getIntExtra("intervalMinutes", 5);
-            intervalMs = minutes * 60L * 1000L;
-            prefs.edit().putInt("changeMinutes", minutes).apply();
+            int picMin = intent.getIntExtra("intervalMinutes", 5);
+            int quoteMin = intent.getIntExtra("quoteIntervalMinutes", 2);
+            picIntervalMs = picMin * 60L * 1000L;
+            quoteIntervalMs = quoteMin * 60L * 1000L;
+            prefs.edit()
+                .putInt("changeMinutes", picMin)
+                .putInt("quoteChangeMinutes", quoteMin)
+                .apply();
         } else {
-            int minutes = prefs.getInt("changeMinutes", 5);
-            intervalMs = minutes * 60L * 1000L;
+            int picMin = prefs.getInt("changeMinutes", 5);
+            int quoteMin = prefs.getInt("quoteChangeMinutes", 2);
+            picIntervalMs = picMin * 60L * 1000L;
+            quoteIntervalMs = quoteMin * 60L * 1000L;
         }
 
-        Log.i(TAG, "Service starting: interval=" + (intervalMs / 60000) + "min");
+        Log.i(TAG, "Service starting: pic=" + (picIntervalMs / 60000) + "min, quote=" + (quoteIntervalMs / 60000) + "min");
 
         startForeground(NOTIFICATION_ID, buildNotification("Active"));
 
-        // Setup timer
-        if (timerRunnable != null) {
-            handler.removeCallbacks(timerRunnable);
-        }
-        timerRunnable = new Runnable() {
+        // Setup pic timer (new image + filter + quote)
+        if (picTimerRunnable != null) handler.removeCallbacks(picTimerRunnable);
+        picTimerRunnable = new Runnable() {
             @Override
             public void run() {
                 doChangeWallpaper();
-                handler.postDelayed(this, intervalMs);
+                handler.postDelayed(this, picIntervalMs);
             }
         };
-        handler.postDelayed(timerRunnable, intervalMs);
+        handler.postDelayed(picTimerRunnable, picIntervalMs);
+
+        // Setup quote timer (same image, new quote)
+        if (quoteTimerRunnable != null) handler.removeCallbacks(quoteTimerRunnable);
+        quoteTimerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                doChangeQuoteOnly();
+                handler.postDelayed(this, quoteIntervalMs);
+            }
+        };
+        handler.postDelayed(quoteTimerRunnable, quoteIntervalMs);
 
         return START_STICKY;
     }
@@ -100,7 +119,10 @@ public class WallpaperService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (handler != null && timerRunnable != null) handler.removeCallbacks(timerRunnable);
+        if (handler != null) {
+            if (picTimerRunnable != null) handler.removeCallbacks(picTimerRunnable);
+            if (quoteTimerRunnable != null) handler.removeCallbacks(quoteTimerRunnable);
+        }
         if (handlerThread != null) handlerThread.quitSafely();
         Log.i(TAG, "Service stopped");
     }
@@ -148,8 +170,52 @@ public class WallpaperService extends Service {
                 }
             }
 
-            // 3. Set as wallpaper
-            Bitmap bmp = BitmapFactory.decodeFile(filteredPath);
+            // 3. Save filtered image as stable file for quote re-renders
+            String stableFiltered = wallpaperDir + "/currentFiltered.jpg";
+            copyFile(filteredPath, stableFiltered);
+            currentFilteredPath = stableFiltered;
+
+            // 4. Render quote onto image via Go
+            String finalPath = filteredPath;
+            try {
+                String fontPath = "/system/fonts/Roboto-Regular.ttf";
+                int sw = getResources().getDisplayMetrics().widthPixels;
+                // Pick a random quote from bundled stoic/kennedy set
+                String[] quotes = {
+                    "The happiness of your life depends upon the quality of your thoughts.|Marcus Aurelius",
+                    "We suffer more often in imagination than in reality.|Seneca",
+                    "Waste no more time arguing about what a good man should be. Be one.|Marcus Aurelius",
+                    "Washington could mess up a one-car parade.|Sen. John Kennedy",
+                    "The short answer is no. The long answer is hell no.|Sen. John Kennedy",
+                    "Our federal government has become a dumpster fire the size of a shopping mall.|Sen. John Kennedy",
+                    "Quit spending money we do not have on crap we do not need.|Sen. John Kennedy",
+                    "You have power over your mind, not outside events.|Marcus Aurelius",
+                    "It is not that we have a short time to live, but that we waste a great deal of it.|Seneca",
+                    "The best social program is a job.|Sen. John Kennedy",
+                    "Difficulties strengthen the mind, as labor does the body.|Seneca",
+                    "Those people are goofier than a football bat.|Sen. John Kennedy",
+                    "First say to yourself what you would be; and then do what you have to do.|Epictetus",
+                    "I believe love is the answer but I also believe owning a handgun just in case is a good idea.|Sen. John Kennedy",
+                    "Very little is needed to make a happy life; it is all within yourself.|Marcus Aurelius"
+                };
+                String picked = quotes[(int)(Math.random() * quotes.length)];
+                String[] parts = picked.split("\\|");
+                String statement = parts[0];
+                String author = parts.length > 1 ? parts[1] : "";
+
+                finalPath = Gofilters.renderQuote(
+                        filteredPath, wallpaperDir, fontPath,
+                        statement, author, "center",
+                        0, 28, "#FFFFFF", "#000000",
+                        200, 200, sw);
+                Log.i(TAG, "Quote rendered: " + author);
+            } catch (Exception e) {
+                Log.w(TAG, "Quote render failed, using filtered only: " + e.getMessage());
+                finalPath = filteredPath;
+            }
+
+            // 5. Set as wallpaper
+            Bitmap bmp = BitmapFactory.decodeFile(finalPath);
             if (bmp == null) { Log.e(TAG, "Decode failed"); return; }
 
             WallpaperManager.getInstance(this).setBitmap(bmp, null, true,
@@ -157,13 +223,88 @@ public class WallpaperService extends Service {
             bmp.recycle();
 
             // 4. Save to history JSON (JS reads this)
-            saveToHistory(filteredPath, originalPath, filterName, "PicSum");
+            saveToHistory(finalPath, originalPath, filterName, "PicSum");
 
             Log.i(TAG, "Done: " + filterName);
             updateNotification("Last: " + filterName);
 
         } catch (Exception e) {
             Log.e(TAG, "Change failed", e);
+        }
+    }
+
+    /**
+     * Quote-only change — re-renders the current filtered image with a new quote.
+     */
+    private void doChangeQuoteOnly() {
+        try {
+            if (currentFilteredPath == null || !new File(currentFilteredPath).exists()) {
+                Log.i(TAG, "No filtered image yet, skipping quote-only change");
+                return;
+            }
+
+            Log.i(TAG, "Changing quote only...");
+            String wallpaperDir = getFilesDir().getAbsolutePath() + "/wallpapers";
+            int sw = getResources().getDisplayMetrics().widthPixels;
+
+            String finalPath = currentFilteredPath;
+            try {
+                String fontPath = "/system/fonts/Roboto-Regular.ttf";
+                String[] quotes = {
+                    "The happiness of your life depends upon the quality of your thoughts.|Marcus Aurelius",
+                    "We suffer more often in imagination than in reality.|Seneca",
+                    "Washington could mess up a one-car parade.|Sen. John Kennedy",
+                    "The short answer is no. The long answer is hell no.|Sen. John Kennedy",
+                    "Our federal government has become a dumpster fire the size of a shopping mall.|Sen. John Kennedy",
+                    "Quit spending money we do not have on crap we do not need.|Sen. John Kennedy",
+                    "You have power over your mind, not outside events.|Marcus Aurelius",
+                    "Difficulties strengthen the mind, as labor does the body.|Seneca",
+                    "Those people are goofier than a football bat.|Sen. John Kennedy",
+                    "First say to yourself what you would be; and then do what you have to do.|Epictetus",
+                    "Very little is needed to make a happy life; it is all within yourself.|Marcus Aurelius",
+                    "I believe love is the answer but I also believe owning a handgun just in case is a good idea.|Sen. John Kennedy"
+                };
+                String picked = quotes[(int)(Math.random() * quotes.length)];
+                String[] parts = picked.split("\\|");
+                String statement = parts[0];
+                String author = parts.length > 1 ? parts[1] : "";
+
+                finalPath = Gofilters.renderQuote(
+                        currentFilteredPath, wallpaperDir, fontPath,
+                        statement, author, "center",
+                        0, 28, "#FFFFFF", "#000000",
+                        200, 200, sw);
+            } catch (Exception e) {
+                Log.w(TAG, "Quote render failed: " + e.getMessage());
+                return;
+            }
+
+            Bitmap bmp = BitmapFactory.decodeFile(finalPath);
+            if (bmp == null) return;
+
+            WallpaperManager.getInstance(this).setBitmap(bmp, null, true,
+                    WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
+            bmp.recycle();
+
+            saveToHistory(finalPath, currentFilteredPath, "QuoteChange", "PicSum");
+            Log.i(TAG, "Quote changed");
+            updateNotification("Quote updated");
+        } catch (Exception e) {
+            Log.e(TAG, "Quote-only change failed", e);
+        }
+    }
+
+    private void copyFile(String src, String dst) {
+        try {
+            FileInputStream fis = new FileInputStream(src);
+            FileOutputStream fos = new FileOutputStream(dst);
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = fis.read(buf)) != -1) fos.write(buf, 0, len);
+            fos.close();
+            fis.close();
+        } catch (Exception e) {
+            Log.w(TAG, "Copy failed: " + e.getMessage());
         }
     }
 

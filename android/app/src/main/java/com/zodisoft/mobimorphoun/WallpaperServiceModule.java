@@ -30,13 +30,17 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
      * Start the wallpaper change service with the given interval.
      */
     @ReactMethod
-    public void startService(int intervalMinutes, Promise promise) {
+    public void startService(int intervalMinutes, int quoteIntervalMinutes, Promise promise) {
         try {
             SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
-            prefs.edit().putInt("changeMinutes", intervalMinutes).apply();
+            prefs.edit()
+                .putInt("changeMinutes", intervalMinutes)
+                .putInt("quoteChangeMinutes", quoteIntervalMinutes)
+                .apply();
 
             Intent intent = new Intent(reactContext, WallpaperService.class);
             intent.putExtra("intervalMinutes", intervalMinutes);
+            intent.putExtra("quoteIntervalMinutes", quoteIntervalMinutes);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 reactContext.startForegroundService(intent);

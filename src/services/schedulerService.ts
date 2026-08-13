@@ -117,8 +117,8 @@ export async function initializeSchedulers(): Promise<void> {
   // Start the native foreground service (reliable background timer)
   if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
     try {
-      await NativeModules.WallpaperServiceManager.startService(config.changeMinutes);
-      logEntry('INFO', 'Scheduler', 'init', `Native service started (${config.changeMinutes} min)`);
+      await NativeModules.WallpaperServiceManager.startService(config.changeMinutes, config.textChangeMinutes);
+      logEntry('INFO', 'Scheduler', 'init', `Native service started (pic=${config.changeMinutes}min, quote=${config.textChangeMinutes}min)`);
     } catch (err) {
       console.warn('Failed to start native wallpaper service:', err);
     }
@@ -203,15 +203,15 @@ export function stopForegroundTimers(): void {
 export async function restartServiceWithInterval(minutes: number): Promise<void> {
   if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
     try {
+      const config = getConfig();
       await NativeModules.WallpaperServiceManager.stopService();
-      await NativeModules.WallpaperServiceManager.startService(minutes);
-      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (${minutes} min)`);
+      await NativeModules.WallpaperServiceManager.startService(minutes, config.textChangeMinutes);
+      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (pic=${minutes}min, quote=${config.textChangeMinutes}min)`);
     } catch (err) {
       console.warn('Failed to restart service:', err);
     }
   }
 
-  // Also reset foreground timers
   stopForegroundTimers();
   startForegroundTimers();
 }
