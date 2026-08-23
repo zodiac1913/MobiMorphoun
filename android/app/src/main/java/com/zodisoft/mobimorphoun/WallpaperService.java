@@ -309,99 +309,45 @@ public class WallpaperService extends Service {
     }
 
     private static final int MAX_HISTORY = 8;
+    private static final String HISTORY_DIR = android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM/MobiMorphoun";
 
     /**
      * Save wallpaper info to a JSON file the JS UI reads.
-     * Maintains history of last 8 entries.
-     * Copies rendered + original images to a dedicated history/ directory
-     * with stable numbered filenames (rendered_0.jpg, original_0.jpg, etc.)
-     * so the UI can reliably display them.
+     * Maintains history of last 8 pairs in /sdcard/DCIM/MobiMorphoun.
+     * Files are named pic{YYYYMMDDHHmmss}.jpg (rendered) and raw{YYYYMMDDHHmmss}.jpg (original).
+     * When more than 8 pairs exist, the oldest pair is deleted.
      */
     private void saveToHistory(String filteredPath, String originalPath, String filter, String source) {
         try {
-            // Ensure history directory exists
-            String historyDir = getFilesDir().getAbsolutePath() + "/history";
-            new File(historyDir).mkdirs();
+            // Ensure DCIM/MobiMorphoun directory exists
+            File histDir = new File(HISTORY_DIR);
+            histDir.mkdirs();
 
-            // Read existing history
+            // Generate timestamp for filenames
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.US);
+            String timestamp = sdf.format(new java.util.Date());
+
+            // Copy images with timestamp names
+            String picDest = HISTORY_DIR + "/pic" + timestamp + ".jpg";
+            String rawDest = HISTORY_DIR + "/raw" + timestamp + ".jpg";
+            copyFile(filteredPath, picDest);
+            copyFile(originalPath, rawDest);
+
+            Log.i(TAG, "History saved to: " + picDest + " and " + rawDest);
+
+            // Enforce max 8 pairs — delete oldest if we have more
+            enforceMaxHistory(histDir);
+
+            // Build history JSON from directory contents (sorted newest first)
+            String history = buildHistoryJson(histDir, filter, source);
+
+            // Write history JSON
             File histFile = new File(getFilesDir(), "wallpaper_history.json");
-            Log.i(TAG, "History file path: " + histFile.getAbsolutePath());
-
-            String history = "[]";
-            if (histFile.exists()) {
-                FileInputStream fis = new FileInputStream(histFile);
-                byte[] data = new byte[(int) histFile.length()];
-                fis.read(data);
-                fis.close();
-                history = new String(data).trim();
-                if (history.isEmpty()) history = "[]";
-            }
-
-            // Parse existing entries to shift slots
-            // We shift all existing images down by one slot (0→1, 1→2, etc.)
-            // and delete slot MAX_HISTORY-1 if it exists (the oldest)
-            // First, delete the oldest slot's files if they exist (slot MAX_HISTORY-1)
-            File oldRendered = new File(historyDir, "rendered_" + (MAX_HISTORY - 1) + ".jpg");
-            File oldOriginal = new File(historyDir, "original_" + (MAX_HISTORY - 1) + ".jpg");
-            if (oldRendered.exists()) oldRendered.delete();
-            if (oldOriginal.exists()) oldOriginal.delete();
-
-            // Shift all files down: slot N becomes slot N+1 (from end to start)
-            for (int i = MAX_HISTORY - 2; i >= 0; i--) {
-                File srcRendered = new File(historyDir, "rendered_" + i + ".jpg");
-                File srcOriginal = new File(historyDir, "original_" + i + ".jpg");
-                File dstRendered = new File(historyDir, "rendered_" + (i + 1) + ".jpg");
-                File dstOriginal = new File(historyDir, "original_" + (i + 1) + ".jpg");
-                if (srcRendered.exists()) srcRendered.renameTo(dstRendered);
-                if (srcOriginal.exists()) srcOriginal.renameTo(dstOriginal);
-            }
-
-            // Copy new images into slot 0
-            String renderedDest = historyDir + "/rendered_0.jpg";
-            String originalDest = historyDir + "/original_0.jpg";
-            copyFile(filteredPath, renderedDest);
-            copyFile(originalPath, originalDest);
-
-            // Build new history entry pointing to the stable history files
-            long now = System.currentTimeMillis();
-            String entry = "{\"saveName\":\"" + renderedDest + "\""
-                    + ",\"originalLocalUri\":\"" + originalDest + "\""
-                    + ",\"filter\":\"" + filter + "\""
-                    + ",\"source\":\"" + source + "\""
-                    + ",\"timestamp\":" + now + "}";
-
-            // Prepend new entry
-            if (history.equals("[]")) {
-                history = "[" + entry + "]";
-            } else {
-                history = "[" + entry + "," + history.substring(1);
-            }
-
-            // Keep only MAX_HISTORY entries
-            int depth = 0;
-            int count = 0;
-            int cutAt = -1;
-            for (int i = 0; i < history.length(); i++) {
-                char c = history.charAt(i);
-                if (c == '{') { depth++; if (depth == 1) count++; }
-                if (c == '}') depth--;
-                if (count > MAX_HISTORY && depth == 0) { cutAt = i + 1; break; }
-            }
-            if (cutAt > 0 && cutAt < history.length()) {
-                history = history.substring(0, cutAt) + "]";
-            }
-
-            // Also update the saveName/originalLocalUri of existing entries
-            // to reflect their shifted slot positions
-            // We rebuild the JSON to ensure paths match the shifted files
-            history = rebuildHistoryPaths(history, historyDir);
-
-            // Write
             FileOutputStream fos = new FileOutputStream(histFile);
             fos.write(history.getBytes());
             fos.close();
 
-            Log.i(TAG, "History saved: " + count + " entries, file size=" + histFile.length());
+            Log.i(TAG, "History JSON updated: " + histFile.getAbsolutePath());
 
         } catch (Exception e) {
             Log.e(TAG, "Save history failed", e);
@@ -409,53 +355,92 @@ public class WallpaperService extends Service {
     }
 
     /**
-     * Rebuild history JSON so each entry's saveName/originalLocalUri points
-     * to the correct numbered slot in the history directory.
+     * Enforce max 8 pic/raw pairs in the history directory.
+     * Deletes the oldest pairs when count exceeds MAX_HISTORY.
      */
-    private String rebuildHistoryPaths(String historyJson, String historyDir) {
-        try {
-            // Simple approach: parse entries, reassign paths by index
-            StringBuilder result = new StringBuilder("[");
-            int entryIndex = 0;
-            int depth = 0;
-            int entryStart = -1;
+    private void enforceMaxHistory(File histDir) {
+        // Get all pic files sorted by name (which sorts by timestamp)
+        File[] picFiles = histDir.listFiles((d, name) -> name.startsWith("pic") && name.endsWith(".jpg"));
+        if (picFiles == null || picFiles.length <= MAX_HISTORY) return;
 
-            for (int i = 0; i < historyJson.length(); i++) {
-                char c = historyJson.charAt(i);
-                if (c == '{') {
-                    depth++;
-                    if (depth == 1) entryStart = i;
-                }
-                if (c == '}') {
-                    depth--;
-                    if (depth == 0 && entryStart >= 0) {
-                        String entryStr = historyJson.substring(entryStart, i + 1);
-                        // Extract filter, source, timestamp from original entry
-                        String filter = extractJsonValue(entryStr, "filter");
-                        String source = extractJsonValue(entryStr, "source");
-                        String timestamp = extractJsonValue(entryStr, "timestamp");
+        // Sort ascending (oldest first)
+        java.util.Arrays.sort(picFiles, (a, b) -> a.getName().compareTo(b.getName()));
 
-                        String renderedPath = historyDir + "/rendered_" + entryIndex + ".jpg";
-                        String originalPath = historyDir + "/original_" + entryIndex + ".jpg";
+        // Delete oldest pairs until we have MAX_HISTORY
+        int toDelete = picFiles.length - MAX_HISTORY;
+        for (int i = 0; i < toDelete; i++) {
+            String picName = picFiles[i].getName();
+            // Extract timestamp portion: pic{timestamp}.jpg -> raw{timestamp}.jpg
+            String ts = picName.substring(3, picName.length() - 4); // remove "pic" and ".jpg"
+            File rawFile = new File(histDir, "raw" + ts + ".jpg");
 
-                        if (entryIndex > 0) result.append(",");
-                        result.append("{\"saveName\":\"").append(renderedPath).append("\"");
-                        result.append(",\"originalLocalUri\":\"").append(originalPath).append("\"");
-                        result.append(",\"filter\":\"").append(filter).append("\"");
-                        result.append(",\"source\":\"").append(source).append("\"");
-                        result.append(",\"timestamp\":").append(timestamp).append("}");
+            Log.i(TAG, "Deleting oldest history: " + picName);
+            picFiles[i].delete();
+            if (rawFile.exists()) rawFile.delete();
+        }
+    }
 
-                        entryIndex++;
-                        entryStart = -1;
-                    }
+    /**
+     * Build history JSON from files in the DCIM/MobiMorphoun directory.
+     * Scans for pic*.jpg files, pairs them with raw*.jpg, sorted newest first.
+     */
+    private String buildHistoryJson(File histDir, String latestFilter, String latestSource) {
+        File[] picFiles = histDir.listFiles((d, name) -> name.startsWith("pic") && name.endsWith(".jpg"));
+        if (picFiles == null || picFiles.length == 0) return "[]";
+
+        // Sort descending (newest first)
+        java.util.Arrays.sort(picFiles, (a, b) -> b.getName().compareTo(a.getName()));
+
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < picFiles.length && i < MAX_HISTORY; i++) {
+            String picName = picFiles[i].getName();
+            String ts = picName.substring(3, picName.length() - 4);
+            String rawPath = HISTORY_DIR + "/raw" + ts + ".jpg";
+            String picPath = picFiles[i].getAbsolutePath();
+
+            // For the newest entry use the provided filter/source, others get generic labels
+            String f = (i == 0) ? latestFilter : "Unknown";
+            String s = (i == 0) ? latestSource : "Unknown";
+
+            // Try to read filter/source from existing JSON for older entries
+            // For simplicity, we'll store filter in the JSON and read it back
+            if (i > 0) {
+                // Read from existing history JSON if available
+                File existingHist = new File(getFilesDir(), "wallpaper_history.json");
+                if (existingHist.exists()) {
+                    try {
+                        FileInputStream fis = new FileInputStream(existingHist);
+                        byte[] data = new byte[(int) existingHist.length()];
+                        fis.read(data);
+                        fis.close();
+                        String existingJson = new String(data);
+                        // Find entry with matching saveName
+                        if (existingJson.contains(picPath)) {
+                            // Extract filter and source for this entry
+                            int entryIdx = existingJson.indexOf(picPath);
+                            int braceStart = existingJson.lastIndexOf('{', entryIdx);
+                            int braceEnd = existingJson.indexOf('}', entryIdx);
+                            if (braceStart >= 0 && braceEnd > braceStart) {
+                                String entryStr = existingJson.substring(braceStart, braceEnd + 1);
+                                String ef = extractJsonValue(entryStr, "filter");
+                                String es = extractJsonValue(entryStr, "source");
+                                if (!ef.isEmpty()) f = ef;
+                                if (!es.isEmpty()) s = es;
+                            }
+                        }
+                    } catch (Exception ignored) {}
                 }
             }
-            result.append("]");
-            return result.toString();
-        } catch (Exception e) {
-            Log.w(TAG, "rebuildHistoryPaths failed, using original: " + e.getMessage());
-            return historyJson;
+
+            if (i > 0) sb.append(",");
+            sb.append("{\"saveName\":\"").append(picPath).append("\"");
+            sb.append(",\"originalLocalUri\":\"").append(rawPath).append("\"");
+            sb.append(",\"filter\":\"").append(f).append("\"");
+            sb.append(",\"source\":\"").append(s).append("\"");
+            sb.append(",\"timestamp\":").append(ts).append("}");
         }
+        sb.append("]");
+        return sb.toString();
     }
 
     /**
@@ -466,17 +451,14 @@ public class WallpaperService extends Service {
         int idx = json.indexOf(searchKey);
         if (idx < 0) return "";
         int valStart = idx + searchKey.length();
-        // Skip whitespace
         while (valStart < json.length() && json.charAt(valStart) == ' ') valStart++;
         if (valStart >= json.length()) return "";
 
         if (json.charAt(valStart) == '"') {
-            // String value
             int valEnd = json.indexOf('"', valStart + 1);
             if (valEnd < 0) return "";
             return json.substring(valStart + 1, valEnd);
         } else {
-            // Numeric or other value
             int valEnd = valStart;
             while (valEnd < json.length() && json.charAt(valEnd) != ',' && json.charAt(valEnd) != '}') {
                 valEnd++;

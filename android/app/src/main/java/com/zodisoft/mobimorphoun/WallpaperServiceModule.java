@@ -120,7 +120,7 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void getHistoryDir(Promise promise) {
         try {
-            String historyDir = reactContext.getFilesDir().getAbsolutePath() + "/history";
+            String historyDir = android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM/MobiMorphoun";
             java.io.File dir = new java.io.File(historyDir);
             if (!dir.exists()) {
                 dir.mkdirs();
