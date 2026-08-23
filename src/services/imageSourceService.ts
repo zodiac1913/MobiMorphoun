@@ -284,7 +284,7 @@ export async function cleanupOldWallpapers(): Promise<void> {
     await ensureWallpaperDir();
     const files = await FileSystem.readDirectoryAsync(WALLPAPER_DIR);
 
-    // Keep: originalPic0-4, filteredPic, and any cameraroll_ files that are recent
+    // Keep: originalPic0-7, filteredPic, and any cameraroll_ files that are recent
     const keepPatterns = /^(originalPic\d|filteredPic)\./;
     const imageFiles = files.filter(f =>
       /\.(jpg|jpeg|png|webp)$/i.test(f) && !keepPatterns.test(f)

@@ -1,6 +1,7 @@
 /**
- * History screen — shows last 5 wallpapers with recall option.
- * Mirrors Metamorphoun's picHistories functionality.
+ * History screen — shows last 8 wallpapers with toggle between rendered/original.
+ * Each card displays the rendered image (with filter+quote) by default,
+ * with a switch to flip to the original unfiltered image.
  */
 
 import { useState, useCallback } from 'react';
@@ -11,7 +12,7 @@ import {
   Image,
   FlatList,
   TouchableOpacity,
-  Alert,
+  Switch,
   Dimensions,
   NativeModules,
 } from 'react-native';
@@ -31,23 +32,34 @@ interface HistoryEntry {
 
 export default function HistoryScreen() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      if (NativeModules.WallpaperServiceManager) {
-        NativeModules.WallpaperServiceManager.getHistory().then((json: string) => {
-          try {
-            setHistory(JSON.parse(json));
-          } catch { setHistory([]); }
-        }).catch(() => setHistory([]));
-      }
+      loadHistory();
     }, [])
   );
 
-  const handleRecall = async (index: number) => {
-    // TODO: implement recall from history
-    Alert.alert('Info', 'Recall not yet implemented for service-based history');
-  };
+  function loadHistory() {
+    if (NativeModules.WallpaperServiceManager) {
+      NativeModules.WallpaperServiceManager.getHistory()
+        .then((json: string) => {
+          try {
+            const parsed = JSON.parse(json);
+            setHistory(Array.isArray(parsed) ? parsed : []);
+          } catch {
+            setHistory([]);
+          }
+        })
+        .catch(() => setHistory([]));
+    }
+  }
+
+  function getImageUri(item: HistoryEntry): string | null {
+    const path = showOriginal ? item.originalLocalUri : item.saveName;
+    if (!path) return null;
+    return path.startsWith('/') ? 'file://' + path : path;
+  }
 
   if (history.length === 0) {
     return (
@@ -62,46 +74,63 @@ export default function HistoryScreen() {
   }
 
   return (
-    <FlatList
-      style={styles.container}
-      contentContainerStyle={styles.listContent}
-      data={history}
-      numColumns={2}
-      keyExtractor={(_, index) => String(index)}
-      renderItem={({ item, index }) => (
-        <TouchableOpacity
-          style={styles.card}
-          onPress={() => handleRecall(index)}
-          accessibilityLabel={`Recall wallpaper ${index + 1}`}
-          accessibilityRole="button"
-        >
-          {item.saveName ? (
-            <Image
-              source={{ uri: item.saveName.startsWith('/') ? 'file://' + item.saveName : item.saveName }}
-              style={styles.cardImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.cardPlaceholder}>
-              <Ionicons name="image-outline" size={32} color="#4a4a6a" />
+    <View style={styles.container}>
+      {/* Toggle switch for rendered vs original */}
+      <View style={styles.toggleRow}>
+        <Text style={[styles.toggleLabel, !showOriginal && styles.toggleLabelActive]}>
+          Rendered
+        </Text>
+        <Switch
+          value={showOriginal}
+          onValueChange={setShowOriginal}
+          trackColor={{ false: '#6366f1', true: '#22c55e' }}
+          thumbColor="#ffffff"
+          accessibilityLabel="Toggle between rendered and original images"
+        />
+        <Text style={[styles.toggleLabel, showOriginal && styles.toggleLabelActive]}>
+          Original
+        </Text>
+      </View>
+
+      <FlatList
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={history}
+        numColumns={2}
+        keyExtractor={(_, index) => String(index)}
+        renderItem={({ item, index }) => {
+          const uri = getImageUri(item);
+          return (
+            <View style={styles.card}>
+              {uri ? (
+                <Image
+                  source={{ uri }}
+                  style={styles.cardImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.cardPlaceholder}>
+                  <Ionicons name="image-outline" size={32} color="#4a4a6a" />
+                </View>
+              )}
+              <View style={styles.cardInfo}>
+                <Text style={styles.cardSource} numberOfLines={1}>
+                  {item.source || 'Unknown'}
+                </Text>
+                <Text style={styles.cardFilter} numberOfLines={1}>
+                  {item.filter || 'Original'}
+                </Text>
+              </View>
+              {index === 0 && (
+                <View style={styles.currentBadge}>
+                  <Text style={styles.currentText}>Current</Text>
+                </View>
+              )}
             </View>
-          )}
-          <View style={styles.cardInfo}>
-            <Text style={styles.cardSource} numberOfLines={1}>
-              {item.source || 'Unknown'}
-            </Text>
-            <Text style={styles.cardFilter} numberOfLines={1}>
-              {item.filter || 'Original'}
-            </Text>
-          </View>
-          {index === 0 && (
-            <View style={styles.currentBadge}>
-              <Text style={styles.currentText}>Current</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      )}
-    />
+          );
+        }}
+      />
+    </View>
   );
 }
 
@@ -109,6 +138,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0f0f23',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#1a1a2e',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2d2d44',
+  },
+  toggleLabel: {
+    color: '#64748b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginHorizontal: 10,
+  },
+  toggleLabelActive: {
+    color: '#ffffff',
+  },
+  list: {
+    flex: 1,
   },
   listContent: {
     padding: 16,
@@ -152,12 +203,12 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   cardSource: {
-    color: '#e2e8f0',
-    fontSize: 13,
+    color: '#94a3b8',
+    fontSize: 12,
     fontWeight: '600',
   },
   cardFilter: {
-    color: '#8b5cf6',
+    color: '#64748b',
     fontSize: 11,
     marginTop: 2,
   },
@@ -165,10 +216,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#6366f1',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 10,
   },
   currentText: {
     color: '#fff',

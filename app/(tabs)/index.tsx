@@ -13,6 +13,7 @@ import {
   Alert,
   Dimensions,
   ScrollView,
+  Switch,
   NativeModules,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +34,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export default function WallpaperScreen() {
   const [current, setCurrent] = useState<PicHistory | null>(null);
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [originalUri, setOriginalUri] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -71,6 +74,10 @@ export default function WallpaperScreen() {
             if (uri) {
               setImageUri(uri.startsWith('/') ? 'file://' + uri : uri);
             }
+            const origUri = latest.originalLocalUri;
+            if (origUri) {
+              setOriginalUri(origUri.startsWith('/') ? 'file://' + origUri : origUri);
+            }
           }
         } catch (e) {
           console.warn('Failed to parse history:', e);
@@ -83,6 +90,10 @@ export default function WallpaperScreen() {
           const uri = info.saveName;
           setImageUri(uri.startsWith('/') ? 'file://' + uri : uri);
         }
+        if (info?.originalLocalUri) {
+          const origUri = info.originalLocalUri;
+          setOriginalUri(origUri.startsWith('/') ? 'file://' + origUri : origUri);
+        }
       });
     } else {
       const info = getCurrentWallpaperInfo();
@@ -90,6 +101,10 @@ export default function WallpaperScreen() {
       if (info?.saveName) {
         const uri = info.saveName;
         setImageUri(uri.startsWith('/') ? 'file://' + uri : uri);
+      }
+      if (info?.originalLocalUri) {
+        const origUri = info.originalLocalUri;
+        setOriginalUri(origUri.startsWith('/') ? 'file://' + origUri : origUri);
       }
     }
   }
@@ -214,11 +229,28 @@ export default function WallpaperScreen() {
         </View>
       ) : null}
 
+      {/* Rendered / Original Toggle */}
+      <View style={styles.toggleRow}>
+        <Text style={[styles.toggleLabel, !showOriginal && styles.toggleLabelActive]}>
+          Rendered
+        </Text>
+        <Switch
+          value={showOriginal}
+          onValueChange={setShowOriginal}
+          trackColor={{ false: '#6366f1', true: '#22c55e' }}
+          thumbColor="#ffffff"
+          accessibilityLabel="Toggle between rendered and original image"
+        />
+        <Text style={[styles.toggleLabel, showOriginal && styles.toggleLabelActive]}>
+          Original
+        </Text>
+      </View>
+
       {/* Wallpaper Preview */}
       <View style={styles.previewContainer}>
-        {imageUri ? (
+        {(showOriginal ? originalUri : imageUri) ? (
           <Image
-            source={{ uri: imageUri }}
+            source={{ uri: (showOriginal ? originalUri : imageUri)! }}
             style={styles.previewImage}
             resizeMode="cover"
           />
@@ -348,6 +380,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 10,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginBottom: 10,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 10,
+  },
+  toggleLabel: {
+    color: '#64748b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginHorizontal: 10,
+  },
+  toggleLabelActive: {
+    color: '#ffffff',
   },
   previewImage: {
     width: '100%',

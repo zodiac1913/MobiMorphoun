@@ -151,8 +151,8 @@ export async function generateNewWallpaper(caller: string = 'Manual'): Promise<W
       quoteBoxY: 0,
     };
 
-    // Update history (keep last 5, like Metamorphoun)
-    config.picHistories = [picHistory, ...config.picHistories.slice(0, 4)];
+    // Update history (keep last 8, like native service)
+    config.picHistories = [picHistory, ...config.picHistories.slice(0, 7)];
     config.backgroundChangeAttempt = 0;
     config.picUpdateCalled = false;
     await saveConfig(config);

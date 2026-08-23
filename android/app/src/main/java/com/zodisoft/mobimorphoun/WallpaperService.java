@@ -308,18 +308,20 @@ public class WallpaperService extends Service {
         }
     }
 
+    private static final int MAX_HISTORY = 8;
+
     /**
      * Save wallpaper info to a JSON file the JS UI reads.
-     * Maintains history of last 5 entries.
+     * Maintains history of last 8 entries.
+     * Copies rendered + original images to a dedicated history/ directory
+     * with stable numbered filenames (rendered_0.jpg, original_0.jpg, etc.)
+     * so the UI can reliably display them.
      */
     private void saveToHistory(String filteredPath, String originalPath, String filter, String source) {
         try {
-            long now = System.currentTimeMillis();
-            String entry = "{\"saveName\":\"" + filteredPath + "\""
-                    + ",\"originalLocalUri\":\"" + originalPath + "\""
-                    + ",\"filter\":\"" + filter + "\""
-                    + ",\"source\":\"" + source + "\""
-                    + ",\"timestamp\":" + now + "}";
+            // Ensure history directory exists
+            String historyDir = getFilesDir().getAbsolutePath() + "/history";
+            new File(historyDir).mkdirs();
 
             // Read existing history
             File histFile = new File(getFilesDir(), "wallpaper_history.json");
@@ -335,6 +337,39 @@ public class WallpaperService extends Service {
                 if (history.isEmpty()) history = "[]";
             }
 
+            // Parse existing entries to shift slots
+            // We shift all existing images down by one slot (0→1, 1→2, etc.)
+            // and delete slot MAX_HISTORY-1 if it exists (the oldest)
+            // First, delete the oldest slot's files if they exist (slot MAX_HISTORY-1)
+            File oldRendered = new File(historyDir, "rendered_" + (MAX_HISTORY - 1) + ".jpg");
+            File oldOriginal = new File(historyDir, "original_" + (MAX_HISTORY - 1) + ".jpg");
+            if (oldRendered.exists()) oldRendered.delete();
+            if (oldOriginal.exists()) oldOriginal.delete();
+
+            // Shift all files down: slot N becomes slot N+1 (from end to start)
+            for (int i = MAX_HISTORY - 2; i >= 0; i--) {
+                File srcRendered = new File(historyDir, "rendered_" + i + ".jpg");
+                File srcOriginal = new File(historyDir, "original_" + i + ".jpg");
+                File dstRendered = new File(historyDir, "rendered_" + (i + 1) + ".jpg");
+                File dstOriginal = new File(historyDir, "original_" + (i + 1) + ".jpg");
+                if (srcRendered.exists()) srcRendered.renameTo(dstRendered);
+                if (srcOriginal.exists()) srcOriginal.renameTo(dstOriginal);
+            }
+
+            // Copy new images into slot 0
+            String renderedDest = historyDir + "/rendered_0.jpg";
+            String originalDest = historyDir + "/original_0.jpg";
+            copyFile(filteredPath, renderedDest);
+            copyFile(originalPath, originalDest);
+
+            // Build new history entry pointing to the stable history files
+            long now = System.currentTimeMillis();
+            String entry = "{\"saveName\":\"" + renderedDest + "\""
+                    + ",\"originalLocalUri\":\"" + originalDest + "\""
+                    + ",\"filter\":\"" + filter + "\""
+                    + ",\"source\":\"" + source + "\""
+                    + ",\"timestamp\":" + now + "}";
+
             // Prepend new entry
             if (history.equals("[]")) {
                 history = "[" + entry + "]";
@@ -342,7 +377,7 @@ public class WallpaperService extends Service {
                 history = "[" + entry + "," + history.substring(1);
             }
 
-            // Keep only 5 entries
+            // Keep only MAX_HISTORY entries
             int depth = 0;
             int count = 0;
             int cutAt = -1;
@@ -350,11 +385,16 @@ public class WallpaperService extends Service {
                 char c = history.charAt(i);
                 if (c == '{') { depth++; if (depth == 1) count++; }
                 if (c == '}') depth--;
-                if (count > 5 && depth == 0) { cutAt = i + 1; break; }
+                if (count > MAX_HISTORY && depth == 0) { cutAt = i + 1; break; }
             }
             if (cutAt > 0 && cutAt < history.length()) {
                 history = history.substring(0, cutAt) + "]";
             }
+
+            // Also update the saveName/originalLocalUri of existing entries
+            // to reflect their shifted slot positions
+            // We rebuild the JSON to ensure paths match the shifted files
+            history = rebuildHistoryPaths(history, historyDir);
 
             // Write
             FileOutputStream fos = new FileOutputStream(histFile);
@@ -365,6 +405,83 @@ public class WallpaperService extends Service {
 
         } catch (Exception e) {
             Log.e(TAG, "Save history failed", e);
+        }
+    }
+
+    /**
+     * Rebuild history JSON so each entry's saveName/originalLocalUri points
+     * to the correct numbered slot in the history directory.
+     */
+    private String rebuildHistoryPaths(String historyJson, String historyDir) {
+        try {
+            // Simple approach: parse entries, reassign paths by index
+            StringBuilder result = new StringBuilder("[");
+            int entryIndex = 0;
+            int depth = 0;
+            int entryStart = -1;
+
+            for (int i = 0; i < historyJson.length(); i++) {
+                char c = historyJson.charAt(i);
+                if (c == '{') {
+                    depth++;
+                    if (depth == 1) entryStart = i;
+                }
+                if (c == '}') {
+                    depth--;
+                    if (depth == 0 && entryStart >= 0) {
+                        String entryStr = historyJson.substring(entryStart, i + 1);
+                        // Extract filter, source, timestamp from original entry
+                        String filter = extractJsonValue(entryStr, "filter");
+                        String source = extractJsonValue(entryStr, "source");
+                        String timestamp = extractJsonValue(entryStr, "timestamp");
+
+                        String renderedPath = historyDir + "/rendered_" + entryIndex + ".jpg";
+                        String originalPath = historyDir + "/original_" + entryIndex + ".jpg";
+
+                        if (entryIndex > 0) result.append(",");
+                        result.append("{\"saveName\":\"").append(renderedPath).append("\"");
+                        result.append(",\"originalLocalUri\":\"").append(originalPath).append("\"");
+                        result.append(",\"filter\":\"").append(filter).append("\"");
+                        result.append(",\"source\":\"").append(source).append("\"");
+                        result.append(",\"timestamp\":").append(timestamp).append("}");
+
+                        entryIndex++;
+                        entryStart = -1;
+                    }
+                }
+            }
+            result.append("]");
+            return result.toString();
+        } catch (Exception e) {
+            Log.w(TAG, "rebuildHistoryPaths failed, using original: " + e.getMessage());
+            return historyJson;
+        }
+    }
+
+    /**
+     * Extract a value from a simple flat JSON object string.
+     */
+    private String extractJsonValue(String json, String key) {
+        String searchKey = "\"" + key + "\":";
+        int idx = json.indexOf(searchKey);
+        if (idx < 0) return "";
+        int valStart = idx + searchKey.length();
+        // Skip whitespace
+        while (valStart < json.length() && json.charAt(valStart) == ' ') valStart++;
+        if (valStart >= json.length()) return "";
+
+        if (json.charAt(valStart) == '"') {
+            // String value
+            int valEnd = json.indexOf('"', valStart + 1);
+            if (valEnd < 0) return "";
+            return json.substring(valStart + 1, valEnd);
+        } else {
+            // Numeric or other value
+            int valEnd = valStart;
+            while (valEnd < json.length() && json.charAt(valEnd) != ',' && json.charAt(valEnd) != '}') {
+                valEnd++;
+            }
+            return json.substring(valStart, valEnd).trim();
         }
     }
 

@@ -113,4 +113,21 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
             promise.reject("READ_ERROR", e.getMessage(), e);
         }
     }
+
+    /**
+     * Return the absolute path to the history directory where rendered/original images are stored.
+     */
+    @ReactMethod
+    public void getHistoryDir(Promise promise) {
+        try {
+            String historyDir = reactContext.getFilesDir().getAbsolutePath() + "/history";
+            java.io.File dir = new java.io.File(historyDir);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            promise.resolve(historyDir);
+        } catch (Exception e) {
+            promise.reject("DIR_ERROR", e.getMessage(), e);
+        }
+    }
 }
