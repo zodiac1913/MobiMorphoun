@@ -286,7 +286,8 @@ public class WallpaperService extends Service {
                     WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
             bmp.recycle();
 
-            saveToHistory(finalPath, currentFilteredPath, "QuoteChange", "PicSum");
+            // Quote-only changes do NOT create new history entries —
+            // same pic, just a different quote overlay. No new files needed.
             Log.i(TAG, "Quote changed");
             updateNotification("Quote updated");
         } catch (Exception e) {
