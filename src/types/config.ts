@@ -172,6 +172,15 @@ export const DEFAULT_CONFIG: MobiConfig = {
       allowDistort: true,
       inherent: true,
     },
+    {
+      use: false,
+      name: 'Unsplash',
+      title: 'Unsplash (Random Photos)',
+      location: 'https://unsplash.com',
+      operation: 'WebPicPage',
+      allowDistort: true,
+      inherent: true,
+    },
   ],
   wallpaperImageSizing: 'fill',
 

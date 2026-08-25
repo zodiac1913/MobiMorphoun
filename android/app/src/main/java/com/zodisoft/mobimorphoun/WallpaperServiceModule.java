@@ -130,4 +130,57 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
             promise.reject("DIR_ERROR", e.getMessage(), e);
         }
     }
+
+    /**
+     * Sync enabled image sources to SharedPreferences so the native service knows which to use.
+     * Expects a comma-separated string like "Bing,NASA,PicSum".
+     */
+    @ReactMethod
+    public void syncImageSources(String enabledSources, Promise promise) {
+        try {
+            SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
+            prefs.edit().putString("enabledImageSources", enabledSources).apply();
+            Log.i("MobiWallpaper", "Image sources synced: " + enabledSources);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("SYNC_ERROR", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Save a file to DCIM/MobiMorphoun/Favorites.
+     * The JS side can't write to external storage, so this does it natively.
+     */
+    @ReactMethod
+    public void saveToFavorites(String sourceFilePath, Promise promise) {
+        try {
+            String historyDir = android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM/MobiMorphoun";
+            java.io.File favDir = new java.io.File(historyDir, "Favorites");
+            if (!favDir.exists()) favDir.mkdirs();
+
+            // Clean the source path (remove file:// prefix if present)
+            String cleanPath = sourceFilePath;
+            if (cleanPath.startsWith("file://")) {
+                cleanPath = cleanPath.substring(7);
+            }
+
+            String filename = "fav_" + System.currentTimeMillis() + ".jpg";
+            java.io.File dest = new java.io.File(favDir, filename);
+
+            // Copy file
+            java.io.FileInputStream fis = new java.io.FileInputStream(cleanPath);
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(dest);
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = fis.read(buf)) != -1) fos.write(buf, 0, len);
+            fos.close();
+            fis.close();
+
+            Log.i("MobiWallpaper", "Saved to favorites: " + dest.getAbsolutePath());
+            promise.resolve(dest.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e("MobiWallpaper", "saveToFavorites failed", e);
+            promise.reject("FAV_ERROR", e.getMessage(), e);
+        }
+    }
 }

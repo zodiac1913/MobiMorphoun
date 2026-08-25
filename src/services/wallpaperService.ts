@@ -207,17 +207,30 @@ export async function saveAsFavorite(withQuote: boolean = true): Promise<boolean
 
   try {
     const current = config.picHistories[0];
-    const favDir = `${FileSystem.documentDirectory}favorites/pictures/`;
-    const dirInfo = await FileSystem.getInfoAsync(favDir);
+    // Save to DCIM/MobiMorphoun/Favorites (accessible in file managers)
+    const favDir = `${FileSystem.documentDirectory}../../../../../DCIM/MobiMorphoun/Favorites/`;
+
+    // Use NativeModules to get the real path on Android
+    let realFavDir = favDir;
+    if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
+      try {
+        const histDir = await NativeModules.WallpaperServiceManager.getHistoryDir();
+        realFavDir = `file://${histDir}/Favorites/`;
+      } catch {
+        // fallback
+      }
+    }
+
+    const dirInfo = await FileSystem.getInfoAsync(realFavDir);
     if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(favDir, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(realFavDir, { intermediates: true });
     }
 
     const ext = current.saveName.split('.').pop() || 'jpg';
     const filename = `fav_${Date.now()}.${ext}`;
     await FileSystem.copyAsync({
       from: current.saveName,
-      to: `${favDir}${filename}`,
+      to: `${realFavDir}${filename}`,
     });
 
     logEntry('INFO', 'WallpaperService', 'saveAsFavorite', `Saved: ${filename}`);

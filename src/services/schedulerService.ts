@@ -9,6 +9,7 @@ import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
 import { Platform, NativeModules } from 'react-native';
 import { getConfig, saveConfig } from './configService';
+import { MobiConfig } from '../types/config';
 import { generateNewWallpaper } from './wallpaperService';
 import { updateCurrentQuote } from './quoteService';
 import { logEntry } from './logService';
@@ -118,7 +119,13 @@ export async function initializeSchedulers(): Promise<void> {
   if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
     try {
       await NativeModules.WallpaperServiceManager.startService(config.changeMinutes, config.textChangeMinutes);
-      logEntry('INFO', 'Scheduler', 'init', `Native service started (pic=${config.changeMinutes}min, quote=${config.textChangeMinutes}min)`);
+      // Sync enabled image sources to native service
+      const enabledSources = config.images
+        .filter(img => img.use)
+        .map(img => img.name)
+        .join(',');
+      await NativeModules.WallpaperServiceManager.syncImageSources(enabledSources);
+      logEntry('INFO', 'Scheduler', 'init', `Native service started (pic=${config.changeMinutes}min, quote=${config.textChangeMinutes}min, sources=${enabledSources})`);
     } catch (err) {
       console.warn('Failed to start native wallpaper service:', err);
     }
@@ -206,7 +213,13 @@ export async function restartServiceWithInterval(minutes: number): Promise<void>
       const config = getConfig();
       await NativeModules.WallpaperServiceManager.stopService();
       await NativeModules.WallpaperServiceManager.startService(minutes, config.textChangeMinutes);
-      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (pic=${minutes}min, quote=${config.textChangeMinutes}min)`);
+      // Sync enabled image sources to native service
+      const enabledSources = config.images
+        .filter(img => img.use)
+        .map(img => img.name)
+        .join(',');
+      await NativeModules.WallpaperServiceManager.syncImageSources(enabledSources);
+      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (pic=${minutes}min, quote=${config.textChangeMinutes}min, sources=${enabledSources})`);
     } catch (err) {
       console.warn('Failed to restart service:', err);
     }
@@ -214,4 +227,24 @@ export async function restartServiceWithInterval(minutes: number): Promise<void>
 
   stopForegroundTimers();
   startForegroundTimers();
+}
+
+/**
+ * Sync image sources to the native service's SharedPreferences.
+ * Call this whenever image source toggles change.
+ */
+export async function syncImageSourcesToNative(config?: MobiConfig): Promise<void> {
+  if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
+    try {
+      const cfg = config || getConfig();
+      const enabledSources = cfg.images
+        .filter(img => img.use)
+        .map(img => img.name)
+        .join(',');
+      await NativeModules.WallpaperServiceManager.syncImageSources(enabledSources);
+      logEntry('INFO', 'Scheduler', 'syncSources', `Sources synced: ${enabledSources}`);
+    } catch (err) {
+      console.warn('Failed to sync image sources:', err);
+    }
+  }
 }

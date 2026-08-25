@@ -135,21 +135,31 @@ public class WallpaperService extends Service {
         try {
             Log.i(TAG, "Changing wallpaper...");
 
-            if (!isNetworkAvailable()) {
-                Log.w(TAG, "No network — skipping");
-                updateNotification("Skipped — no network");
-                return;
-            }
-
             String wallpaperDir = getFilesDir().getAbsolutePath() + "/wallpapers";
             new File(wallpaperDir).mkdirs();
 
-            // 1. Fetch image
-            String originalPath = fetchImage(wallpaperDir);
-            if (originalPath == null) {
-                Log.e(TAG, "Fetch failed");
+            // 1. Fetch image from configured source
+            String[] fetchResult = null;
+            if (isNetworkAvailable()) {
+                fetchResult = fetchImageFromSource(wallpaperDir);
+            } else {
+                Log.w(TAG, "No network");
+                updateNotification("No network — using local images");
+            }
+
+            // 2. If online sources failed or no network, fall back to local images
+            //    (history pics in DCIM/MobiMorphoun or camera roll)
+            if (fetchResult == null) {
+                fetchResult = fetchLocalFallback(wallpaperDir);
+            }
+
+            if (fetchResult == null) {
+                Log.e(TAG, "All sources failed including local fallback");
+                updateNotification("No images available");
                 return;
             }
+            String originalPath = fetchResult[0];
+            String sourceName = fetchResult[1];
 
             // 2. Pick and apply filter via Go
             String[] filters = {"Original", "Original", "Original",
@@ -223,7 +233,7 @@ public class WallpaperService extends Service {
             bmp.recycle();
 
             // 4. Save to history JSON (JS reads this)
-            saveToHistory(finalPath, originalPath, filterName, "PicSum");
+            saveToHistory(finalPath, originalPath, filterName, sourceName);
 
             Log.i(TAG, "Done: " + filterName);
             updateNotification("Last: " + filterName);
@@ -468,18 +478,418 @@ public class WallpaperService extends Service {
         }
     }
 
-    private String fetchImage(String outputDir) {
+    /**
+     * Fetch image from a randomly chosen enabled source.
+     * Reads enabled sources from SharedPreferences (synced from JS config).
+     * Shuffles enabled sources and tries each. If the first pick fails,
+     * alerts the user via notification but tries remaining enabled sources.
+     * NEVER uses a source that isn't enabled.
+     * Returns [filePath, sourceName] or null if ALL enabled sources fail.
+     */
+    private String[] fetchImageFromSource(String outputDir) {
+        SharedPreferences prefs = getSharedPreferences("mobimorphoun_prefs", MODE_PRIVATE);
+        String enabledSourcesStr = prefs.getString("enabledImageSources", "");
+
+        Log.i(TAG, "enabledImageSources from prefs: '" + enabledSourcesStr + "'");
+
+        // Parse enabled sources (comma-separated, e.g. "Bing,PicSum,NASA")
+        if (enabledSourcesStr.isEmpty()) {
+            Log.w(TAG, "No image sources configured in SharedPreferences");
+            updateNotification("No image sources enabled");
+            return null;
+        }
+
+        String[] enabled = enabledSourcesStr.split(",");
+
+        // Filter out empty strings and build shuffled list
+        java.util.List<String> sourceList = new java.util.ArrayList<>();
+        for (String s : enabled) {
+            String trimmed = s.trim();
+            if (!trimmed.isEmpty()) sourceList.add(trimmed);
+        }
+
+        if (sourceList.isEmpty()) {
+            updateNotification("No image sources enabled");
+            return null;
+        }
+
+        // Shuffle so we pick randomly
+        java.util.Collections.shuffle(sourceList);
+        Log.i(TAG, "Trying sources in order: " + sourceList.toString());
+
+        // Try each enabled source in shuffled order
+        for (int i = 0; i < sourceList.size(); i++) {
+            String source = sourceList.get(i);
+            String path = null;
+            try {
+                switch (source) {
+                    case "Bing":
+                        path = fetchBingImage(outputDir);
+                        break;
+                    case "NASA":
+                        path = fetchNASAImage(outputDir);
+                        break;
+                    case "PicSum":
+                        path = fetchPicSumImage(outputDir);
+                        break;
+                    case "Unsplash":
+                        path = fetchUnsplashImage(outputDir);
+                        break;
+                    case "CameraRoll":
+                    case "Favorites":
+                        // Local sources — use the local fallback logic directly
+                        path = fetchLocalSource(outputDir, source);
+                        break;
+                    default:
+                        Log.w(TAG, "Unknown source: " + source);
+                        continue;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Source " + source + " failed: " + e.getMessage());
+            }
+
+            if (path != null) {
+                Log.i(TAG, "Fetched from source: " + source);
+                return new String[]{path, source};
+            }
+
+            // This source failed — alert user but keep trying others
+            Log.w(TAG, source + " is down, trying next enabled source...");
+            updateNotification(source + " failed — trying another source");
+        }
+
+        // ALL enabled sources failed
+        updateNotification("All enabled sources failed — check connections");
+        return null;
+    }
+
+    /**
+     * Fetch a random image from a local source (CameraRoll or Favorites).
+     */
+    private String fetchLocalSource(String outputDir, String source) {
+        java.util.List<File> candidates = new java.util.ArrayList<>();
+
+        if ("CameraRoll".equals(source)) {
+            // Look in common camera directories
+            String[] cameraDirs = {
+                android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM/Camera",
+                android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM",
+                android.os.Environment.getExternalStorageDirectory().getAbsolutePath() + "/Pictures",
+            };
+            for (String dir : cameraDirs) {
+                File d = new File(dir);
+                if (d.exists()) {
+                    File[] photos = d.listFiles((parent, name) -> {
+                        String lower = name.toLowerCase();
+                        return (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png"))
+                                && !name.startsWith("pic") && !name.startsWith("raw"); // skip our history files
+                    });
+                    if (photos != null) {
+                        for (File f : photos) candidates.add(f);
+                    }
+                }
+            }
+        } else if ("Favorites".equals(source)) {
+            // Favorites stored in DCIM/MobiMorphoun/Favorites
+            File favDir = new File(HISTORY_DIR, "Favorites");
+            if (favDir.exists()) {
+                File[] favs = favDir.listFiles((d, name) -> {
+                    String lower = name.toLowerCase();
+                    return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png");
+                });
+                if (favs != null) {
+                    for (File f : favs) candidates.add(f);
+                }
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            Log.w(TAG, source + ": no images found");
+            return null;
+        }
+
+        // Pick a random one
+        File picked = candidates.get((int)(Math.random() * candidates.size()));
+        String destPath = outputDir + "/local_" + System.currentTimeMillis() + ".jpg";
+        copyFile(picked.getAbsolutePath(), destPath);
+
+        if (new File(destPath).exists()) {
+            Log.i(TAG, source + ": picked " + picked.getName());
+            return destPath;
+        }
+        return null;
+    }
+
+    /**
+     * Local fallback: pick a random image from history (DCIM/MobiMorphoun raw files)
+     * or the device camera roll (DCIM/Camera).
+     * Used when no network or all online sources fail.
+     */
+    private String[] fetchLocalFallback(String outputDir) {
+        java.util.List<File> candidates = new java.util.ArrayList<>();
+
+        // 1. History raw images in DCIM/MobiMorphoun
+        File histDir = new File(HISTORY_DIR);
+        if (histDir.exists()) {
+            File[] rawFiles = histDir.listFiles((d, name) -> name.startsWith("raw") && name.endsWith(".jpg"));
+            if (rawFiles != null) {
+                for (File f : rawFiles) candidates.add(f);
+            }
+        }
+
+        // 2. Camera roll (DCIM/Camera)
+        File cameraDir = new File(android.os.Environment.getExternalStorageDirectory(), "DCIM/Camera");
+        if (cameraDir.exists()) {
+            File[] photos = cameraDir.listFiles((d, name) ->
+                    name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".jpeg") || name.toLowerCase().endsWith(".png"));
+            if (photos != null) {
+                for (File f : photos) candidates.add(f);
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            Log.w(TAG, "No local fallback images available");
+            return null;
+        }
+
+        // Pick a random local image
+        File picked = candidates.get((int)(Math.random() * candidates.size()));
+        String sourceName = picked.getAbsolutePath().contains("MobiMorphoun") ? "History" : "CameraRoll";
+
+        // Copy to working dir so the filter pipeline can work on it
+        String destPath = outputDir + "/local_" + System.currentTimeMillis() + ".jpg";
+        copyFile(picked.getAbsolutePath(), destPath);
+
+        if (new File(destPath).exists()) {
+            Log.i(TAG, "Local fallback: " + sourceName + " — " + picked.getName());
+            return new String[]{destPath, sourceName};
+        }
+        return null;
+    }
+
+    /**
+     * Fetch Bing Photo of the Day (random from last 8 days).
+     */
+    private String fetchBingImage(String outputDir) {
+        try {
+            String apiUrl = "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=en-US";
+            HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.connect();
+
+            if (conn.getResponseCode() != 200) {
+                conn.disconnect();
+                return null;
+            }
+
+            // Read JSON response
+            InputStream in = conn.getInputStream();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) != -1) baos.write(buf, 0, len);
+            in.close();
+            conn.disconnect();
+            String json = baos.toString("UTF-8");
+
+            // Parse image URLs from JSON (simple extraction)
+            java.util.List<String> urls = new java.util.ArrayList<>();
+            int searchFrom = 0;
+            while (true) {
+                int idx = json.indexOf("\"url\":\"", searchFrom);
+                if (idx < 0) break;
+                int start = idx + 7;
+                int end = json.indexOf("\"", start);
+                if (end < 0) break;
+                String imageUrl = "https://www.bing.com" + json.substring(start, end);
+                urls.add(imageUrl);
+                searchFrom = end + 1;
+            }
+
+            if (urls.isEmpty()) {
+                Log.w(TAG, "Bing: no images found in response");
+                return null;
+            }
+
+            // Pick a random image
+            String imageUrl = urls.get((int)(Math.random() * urls.size()));
+            Log.i(TAG, "Bing image URL: " + imageUrl);
+
+            return downloadToFile(imageUrl, outputDir, "bing_" + System.currentTimeMillis() + ".jpg");
+        } catch (Exception e) {
+            Log.e(TAG, "Bing fetch failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch NASA Astronomy Picture of the Day (random date).
+     */
+    private String fetchNASAImage(String outputDir) {
+        try {
+            // Random date between 1995-06-16 and today
+            long start = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    .parse("1995-06-16").getTime();
+            long end = System.currentTimeMillis();
+            long randomTime = start + (long)(Math.random() * (end - start));
+            String dateStr = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    .format(new java.util.Date(randomTime));
+
+            String apiUrl = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&date=" + dateStr;
+            HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.connect();
+
+            if (conn.getResponseCode() != 200) {
+                conn.disconnect();
+                return null;
+            }
+
+            InputStream in = conn.getInputStream();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) != -1) baos.write(buf, 0, len);
+            in.close();
+            conn.disconnect();
+            String json = baos.toString("UTF-8");
+
+            // Check media_type is "image"
+            if (!json.contains("\"media_type\":\"image\"")) {
+                Log.w(TAG, "NASA: not an image for date " + dateStr);
+                return null;
+            }
+
+            // Extract hdurl or url
+            String imageUrl = extractSimpleJsonString(json, "hdurl");
+            if (imageUrl == null || imageUrl.isEmpty()) {
+                imageUrl = extractSimpleJsonString(json, "url");
+            }
+            if (imageUrl == null || imageUrl.isEmpty()) return null;
+
+            Log.i(TAG, "NASA image URL: " + imageUrl);
+            return downloadToFile(imageUrl, outputDir, "nasa_" + System.currentTimeMillis() + ".jpg");
+        } catch (Exception e) {
+            Log.e(TAG, "NASA fetch failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch random image from PicSum.
+     */
+    private String fetchPicSumImage(String outputDir) {
         try {
             String url = "https://picsum.photos/1080/1920?random=" + System.currentTimeMillis();
+            return downloadToFile(url, outputDir, "picsum_" + System.currentTimeMillis() + ".jpg");
+        } catch (Exception e) {
+            Log.e(TAG, "PicSum fetch failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch random image from Unsplash using their internal API.
+     * Grabs latest photos, picks a random free one, downloads the regular-size URL.
+     */
+    private String fetchUnsplashImage(String outputDir) {
+        try {
+            // Random page offset for variety
+            int page = 1 + (int)(Math.random() * 10);
+            String apiUrl = "https://unsplash.com/napi/photos?per_page=30&order_by=latest&page=" + page;
+            HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+            conn.setInstanceFollowRedirects(true);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.110 Mobile Safari/537.36");
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
+            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+            conn.setRequestProperty("Accept-Encoding", "identity");
+            conn.setRequestProperty("Connection", "keep-alive");
+            conn.connect();
+
+            int responseCode = conn.getResponseCode();
+            Log.i(TAG, "Unsplash API response code: " + responseCode);
+            if (responseCode != 200) {
+                // Log response body for debugging
+                try {
+                    InputStream errIn = conn.getErrorStream();
+                    if (errIn != null) {
+                        byte[] errBuf = new byte[512];
+                        int errLen = errIn.read(errBuf);
+                        if (errLen > 0) Log.w(TAG, "Unsplash error body: " + new String(errBuf, 0, errLen));
+                        errIn.close();
+                    }
+                } catch (Exception ignored) {}
+                conn.disconnect();
+                Log.w(TAG, "Unsplash API returned: " + responseCode);
+                return null;
+            }
+
+            // Read response
+            InputStream in = conn.getInputStream();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = in.read(buf)) != -1) baos.write(buf, 0, len);
+            in.close();
+            conn.disconnect();
+            String json = baos.toString("UTF-8");
+
+            // Extract "regular" URLs from non-premium photos
+            // Look for entries where "premium":false and grab "regular":"url"
+            java.util.List<String> imageUrls = new java.util.ArrayList<>();
+            int searchFrom = 0;
+            while (true) {
+                // Find next "regular" URL
+                int idx = json.indexOf("\"regular\":\"", searchFrom);
+                if (idx < 0) break;
+                int start = idx + 11;
+                int end = json.indexOf("\"", start);
+                if (end < 0) break;
+                String url = json.substring(start, end).replace("\\u0026", "&");
+
+                // Only include images.unsplash.com (skip plus.unsplash.com which are premium)
+                if (url.contains("images.unsplash.com")) {
+                    imageUrls.add(url);
+                }
+                searchFrom = end + 1;
+            }
+
+            if (imageUrls.isEmpty()) {
+                Log.w(TAG, "Unsplash: no free images found");
+                return null;
+            }
+
+            // Pick a random one
+            String imageUrl = imageUrls.get((int)(Math.random() * imageUrls.size()));
+            Log.i(TAG, "Unsplash image URL: " + imageUrl.substring(0, Math.min(80, imageUrl.length())) + "...");
+
+            return downloadToFile(imageUrl, outputDir, "unsplash_" + System.currentTimeMillis() + ".jpg");
+        } catch (Exception e) {
+            Log.e(TAG, "Unsplash fetch failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * Download a URL to a file in outputDir.
+     */
+    private String downloadToFile(String url, String outputDir, String filename) {
+        try {
             HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setInstanceFollowRedirects(true);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(15000);
             conn.connect();
 
-            if (conn.getResponseCode() != 200) return null;
+            if (conn.getResponseCode() != 200) {
+                conn.disconnect();
+                return null;
+            }
 
-            String filename = "wp_" + System.currentTimeMillis() + ".jpg";
             File out = new File(outputDir, filename);
             InputStream in = conn.getInputStream();
             FileOutputStream fos = new FileOutputStream(out);
@@ -491,9 +901,22 @@ public class WallpaperService extends Service {
             conn.disconnect();
             return out.getAbsolutePath();
         } catch (Exception e) {
-            Log.e(TAG, "Fetch failed", e);
+            Log.e(TAG, "Download failed: " + url, e);
             return null;
         }
+    }
+
+    /**
+     * Simple JSON string value extractor (no full parser needed).
+     */
+    private String extractSimpleJsonString(String json, String key) {
+        String search = "\"" + key + "\":\"";
+        int idx = json.indexOf(search);
+        if (idx < 0) return null;
+        int start = idx + search.length();
+        int end = json.indexOf("\"", start);
+        if (end < 0) return null;
+        return json.substring(start, end);
     }
 
     private boolean isNetworkAvailable() {

@@ -19,13 +19,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useFonts } from 'expo-font';
-import * as FileSystem from 'expo-file-system';
 import {
   generateNewWallpaper,
   recallWallpaper,
-  saveAsFavorite,
   getCurrentWallpaperInfo,
 } from '../../src/services/wallpaperService';
+import { syncImageSourcesToNative } from '../../src/services/schedulerService';
 import { PicHistory } from '../../src/types/config';
 import { APP_VERSION } from '../../src/version';
 
@@ -114,6 +113,8 @@ export default function WallpaperScreen() {
     try {
       // Trigger Java service to change wallpaper
       if (NativeModules.WallpaperServiceManager) {
+        // Sync sources to SharedPreferences before triggering change
+        await syncImageSourcesToNative();
         await NativeModules.WallpaperServiceManager.changeNow();
         // Wait a moment for the service to finish, then refresh display
         setTimeout(() => {
@@ -147,13 +148,22 @@ export default function WallpaperScreen() {
   }, []);
 
   const handleFavorite = useCallback(async () => {
-    const saved = await saveAsFavorite(true);
-    if (saved) {
-      Alert.alert('Saved', 'Wallpaper saved to favorites!');
-    } else {
+    // Save the currently displayed image to DCIM/MobiMorphoun/Favorites via native
+    if (!imageUri) {
       Alert.alert('Error', 'No wallpaper to save');
+      return;
     }
-  }, []);
+    try {
+      if (NativeModules.WallpaperServiceManager) {
+        const savedPath = await NativeModules.WallpaperServiceManager.saveToFavorites(imageUri);
+        Alert.alert('Saved', 'Wallpaper saved to favorites!');
+      } else {
+        Alert.alert('Error', 'Native service not available');
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save: ' + String(err));
+    }
+  }, [imageUri]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>

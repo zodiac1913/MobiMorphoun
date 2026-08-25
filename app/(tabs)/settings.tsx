@@ -18,7 +18,7 @@ import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MobiConfig, WallpaperTarget, ImageSizing, TextBoxLocation } from '../../src/types/config';
 import { getConfig, saveConfig, resetConfig } from '../../src/services/configService';
-import { restartServiceWithInterval } from '../../src/services/schedulerService';
+import { restartServiceWithInterval, syncImageSourcesToNative } from '../../src/services/schedulerService';
 
 /**
  * Button that fires on tap and repeats while held down.
@@ -62,6 +62,11 @@ export default function SettingsScreen() {
     // Restart service when wallpaper interval changes
     if (key === 'changeMinutes') {
       await restartServiceWithInterval(value as number);
+    }
+
+    // Sync image sources to native service when they change
+    if (key === 'images') {
+      await syncImageSourcesToNative(updated);
     }
   };
 

@@ -75,9 +75,8 @@ export async function fetchRandomImage(): Promise<FetchedImage> {
     }
   }
 
-  // All sources failed — last resort PicSum
-  console.warn('All enabled sources failed, using PicSum fallback');
-  return fetchPicSumImage(enabledSources[0]);
+  // All sources failed — do NOT fall back to a different source
+  throw new Error('All enabled image sources failed. Enable other sources or retry later.');
 }
 
 /**
@@ -99,11 +98,10 @@ async function fetchBingImage(source: ImageSource): Promise<FetchedImage> {
       return { uri: localUri, source, originalUrl: imageUrl };
     }
   } catch (err) {
-    console.warn('Bing fetch failed, falling back to PicSum:', err);
+    console.warn('Bing fetch failed:', err);
   }
 
-  // Fallback
-  return fetchPicSumImage(source);
+  throw new Error('Bing image source is unavailable');
 }
 
 /**
