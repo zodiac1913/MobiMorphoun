@@ -306,6 +306,8 @@ const styles = StyleSheet.create({
   headerVersion: {
     color: '#64748b',
     fontSize: 12,
+    marginRight: 12,
+    flexShrink: 0,
   },
   actions: {
     flexDirection: 'row',

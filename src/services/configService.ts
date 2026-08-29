@@ -70,12 +70,30 @@ function migrateConfig(config: MobiConfig): void {
     }
   }
 
+  // Remove stale inherent sources that were dropped/renamed in updates
+  // (e.g. the old "Unsplash" source replaced by "Pexels"). We keep any
+  // non-inherent (user-added) sources intact.
+  const validInherentSources = new Set(
+    DEFAULT_CONFIG.images.filter(i => i.inherent).map(i => i.name)
+  );
+  config.images = config.images.filter(
+    img => !img.inherent || validInherentSources.has(img.name)
+  );
+
   // Ensure all inherent text libraries exist
   for (const defaultLib of DEFAULT_CONFIG.textLibraries) {
     if (defaultLib.inherent && !config.textLibraries.find(t => t.name === defaultLib.name)) {
       config.textLibraries.push(defaultLib);
     }
   }
+
+  // Remove stale inherent text libraries dropped/renamed in updates
+  const validInherentLibs = new Set(
+    DEFAULT_CONFIG.textLibraries.filter(t => t.inherent).map(t => t.name)
+  );
+  config.textLibraries = config.textLibraries.filter(
+    lib => !lib.inherent || validInherentLibs.has(lib.name)
+  );
 }
 
 export async function resetConfig(): Promise<MobiConfig> {
