@@ -47,6 +47,24 @@ export async function getRandomQuote(): Promise<Quote> {
 }
 
 /**
+ * Build the full pool of quotes from all enabled libraries, respecting the
+ * max-char limit. Used to sync the quote pool to the native background service
+ * so it renders quotes from the user's chosen libraries.
+ */
+export async function getEnabledQuotePool(): Promise<Quote[]> {
+  const config = getConfig();
+  const enabledLibraries = config.textLibraries.filter(lib => lib.use);
+  const maxChars = config.quoteMaxChars || 200;
+
+  let all: Quote[] = [];
+  for (const library of enabledLibraries) {
+    const quotes = await loadQuoteLibrary(library.name, library.location);
+    all = all.concat(quotes.filter(q => q.statement.length <= maxChars));
+  }
+  return all;
+}
+
+/**
  * Load a quote library by name/location
  */
 async function loadQuoteLibrary(name: string, location: string): Promise<Quote[]> {
@@ -87,27 +105,11 @@ async function loadQuoteLibrary(name: string, location: string): Promise<Quote[]
 export async function updateCurrentQuote(): Promise<Quote> {
   const config = getConfig();
 
-  if (config.mbcMode) {
-    return getMBCQuote();
-  }
-
   const quote = await getRandomQuote();
   config.currentQuoteStatement = quote.statement;
   config.currentQuoteAuthor = quote.author;
   await saveConfig(config);
   return quote;
-}
-
-/**
- * MBC mode — cycles through quotes monthly
- */
-function getMBCQuote(): Quote {
-  // This would be loaded from a bundled file
-  // For now, return a placeholder
-  return {
-    statement: 'MBC Mode Active',
-    author: 'MobiMorphoun',
-  };
 }
 
 /**

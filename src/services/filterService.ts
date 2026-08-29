@@ -33,7 +33,8 @@ export type FilterName =
   | 'Mosaic'
   | 'JigsawPuzzle'
   | 'Graffiti'
-  | 'Oilify';
+  | 'Oilify'
+  | 'Cyberpunk';
 
 interface FilterResult {
   uri: string;
@@ -59,6 +60,7 @@ function getEnabledFilters(config: MobiConfig): FilterName[] {
   if (config.wallpaperFilterJigsawPuzzle) filters.push('JigsawPuzzle');
   if (config.wallpaperFilterGraffiti) filters.push('Graffiti');
   if (config.wallpaperFilterOilify) filters.push('Oilify');
+  if (config.wallpaperFilterCyberpunk) filters.push('Cyberpunk');
 
   // Weight "Original" more heavily (3x) like Metamorphoun does
   if (config.wallpaperFilterOriginal) {
@@ -140,6 +142,11 @@ export async function applyFilter(
         return await applyGraffitiApprox(imageUri, filterName);
       case 'Oilify':
         return await applyOilifyApprox(imageUri, filterName);
+      case 'Cyberpunk':
+        // Cyberpunk is a heavy focal/neon effect with no lightweight JS
+        // equivalent; the Go native module is the real implementation.
+        // Degrade gracefully to the original image when native is unavailable.
+        return { uri: imageUri, filterName, intensity: 0 };
       default:
         return { uri: imageUri, filterName: 'Original', intensity: 0 };
     }

@@ -161,11 +161,8 @@ public class WallpaperService extends Service {
             String originalPath = fetchResult[0];
             String sourceName = fetchResult[1];
 
-            // 2. Pick and apply filter via Go
-            String[] filters = {"Original", "Original", "Original",
-                    "BlurSoft", "BlurHard", "Pixelate",
-                    "Monochrome", "Cartoon", "Wavy", "Vortex", "Mosaic", "Oilify"};
-            String filterName = filters[(int)(Math.random() * filters.length)];
+            // 2. Pick and apply filter via Go (honors the user's enabled-filter toggles)
+            String filterName = pickEnabledFilter();
             String filteredPath = originalPath;
 
             if (!filterName.equals("Original")) {
@@ -190,25 +187,8 @@ public class WallpaperService extends Service {
             try {
                 String fontPath = "/system/fonts/Roboto-Regular.ttf";
                 int sw = getResources().getDisplayMetrics().widthPixels;
-                // Pick a random quote from bundled stoic/kennedy set
-                String[] quotes = {
-                    "The happiness of your life depends upon the quality of your thoughts.|Marcus Aurelius",
-                    "We suffer more often in imagination than in reality.|Seneca",
-                    "Waste no more time arguing about what a good man should be. Be one.|Marcus Aurelius",
-                    "Washington could mess up a one-car parade.|Sen. John Kennedy",
-                    "The short answer is no. The long answer is hell no.|Sen. John Kennedy",
-                    "Our federal government has become a dumpster fire the size of a shopping mall.|Sen. John Kennedy",
-                    "Quit spending money we do not have on crap we do not need.|Sen. John Kennedy",
-                    "You have power over your mind, not outside events.|Marcus Aurelius",
-                    "It is not that we have a short time to live, but that we waste a great deal of it.|Seneca",
-                    "The best social program is a job.|Sen. John Kennedy",
-                    "Difficulties strengthen the mind, as labor does the body.|Seneca",
-                    "Those people are goofier than a football bat.|Sen. John Kennedy",
-                    "First say to yourself what you would be; and then do what you have to do.|Epictetus",
-                    "I believe love is the answer but I also believe owning a handgun just in case is a good idea.|Sen. John Kennedy",
-                    "Very little is needed to make a happy life; it is all within yourself.|Marcus Aurelius"
-                };
-                String picked = quotes[(int)(Math.random() * quotes.length)];
+                // Pick a quote from the user's enabled quote libraries (synced from JS).
+                String picked = pickQuote();
                 String[] parts = picked.split("\\|");
                 String statement = parts[0];
                 String author = parts.length > 1 ? parts[1] : "";
@@ -260,21 +240,8 @@ public class WallpaperService extends Service {
             String finalPath = currentFilteredPath;
             try {
                 String fontPath = "/system/fonts/Roboto-Regular.ttf";
-                String[] quotes = {
-                    "The happiness of your life depends upon the quality of your thoughts.|Marcus Aurelius",
-                    "We suffer more often in imagination than in reality.|Seneca",
-                    "Washington could mess up a one-car parade.|Sen. John Kennedy",
-                    "The short answer is no. The long answer is hell no.|Sen. John Kennedy",
-                    "Our federal government has become a dumpster fire the size of a shopping mall.|Sen. John Kennedy",
-                    "Quit spending money we do not have on crap we do not need.|Sen. John Kennedy",
-                    "You have power over your mind, not outside events.|Marcus Aurelius",
-                    "Difficulties strengthen the mind, as labor does the body.|Seneca",
-                    "Those people are goofier than a football bat.|Sen. John Kennedy",
-                    "First say to yourself what you would be; and then do what you have to do.|Epictetus",
-                    "Very little is needed to make a happy life; it is all within yourself.|Marcus Aurelius",
-                    "I believe love is the answer but I also believe owning a handgun just in case is a good idea.|Sen. John Kennedy"
-                };
-                String picked = quotes[(int)(Math.random() * quotes.length)];
+                // Pick a quote from the user's enabled quote libraries (synced from JS).
+                String picked = pickQuote();
                 String[] parts = picked.split("\\|");
                 String statement = parts[0];
                 String author = parts.length > 1 ? parts[1] : "";
@@ -486,6 +453,77 @@ public class WallpaperService extends Service {
      * NEVER uses a source that isn't enabled.
      * Returns [filePath, sourceName] or null if ALL enabled sources fail.
      */
+    /**
+     * Fallback quote pool used only when the JS side has not yet synced the
+     * user's enabled quote libraries into SharedPreferences.
+     */
+    private static final String[] FALLBACK_QUOTES = {
+        "The happiness of your life depends upon the quality of your thoughts.|Marcus Aurelius",
+        "We suffer more often in imagination than in reality.|Seneca",
+        "You have power over your mind, not outside events.|Marcus Aurelius",
+        "First say to yourself what you would be; and then do what you have to do.|Epictetus",
+        "Very little is needed to make a happy life; it is all within yourself.|Marcus Aurelius"
+    };
+
+    /**
+     * Pick a quote ("statement|author") honoring the user's enabled quote
+     * libraries synced from JS via the "enabledQuotes" pref (newline-separated
+     * "statement|author" entries). Falls back to a small built-in set when
+     * nothing has been synced yet.
+     */
+    private String pickQuote() {
+        SharedPreferences prefs = getSharedPreferences("mobimorphoun_prefs", MODE_PRIVATE);
+        String blob = prefs.getString("enabledQuotes", "");
+
+        java.util.List<String> pool = new java.util.ArrayList<>();
+        if (blob != null && !blob.trim().isEmpty()) {
+            for (String line : blob.split("\n")) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty()) pool.add(trimmed);
+            }
+        }
+        if (pool.isEmpty()) {
+            return FALLBACK_QUOTES[(int) (Math.random() * FALLBACK_QUOTES.length)];
+        }
+        return pool.get((int) (Math.random() * pool.size()));
+    }
+
+    /**
+     * Pick a filter honoring the user's enabled-filter toggles synced from JS.
+     * Reads the comma-separated "enabledFilters" pref (e.g. "Original,BlurSoft,Cyberpunk").
+     * Mirrors the JS getEnabledFilters(): "Original" is weighted 3x, and if nothing
+     * is configured we fall back to "Original" so a wallpaper still changes.
+     */
+    private String pickEnabledFilter() {
+        SharedPreferences prefs = getSharedPreferences("mobimorphoun_prefs", MODE_PRIVATE);
+        String enabledFiltersStr = prefs.getString("enabledFilters", "");
+        Log.i(TAG, "enabledFilters from prefs: '" + enabledFiltersStr + "'");
+
+        java.util.List<String> pool = new java.util.ArrayList<>();
+        boolean hasOriginal = false;
+        for (String f : enabledFiltersStr.split(",")) {
+            String trimmed = f.trim();
+            if (trimmed.isEmpty()) continue;
+            pool.add(trimmed);
+            if (trimmed.equalsIgnoreCase("Original")) {
+                hasOriginal = true;
+            }
+        }
+
+        if (pool.isEmpty()) {
+            // Nothing enabled (or not yet synced) — leave the image untouched.
+            return "Original";
+        }
+
+        // Weight "Original" more heavily (3x total) like the JS getEnabledFilters does.
+        if (hasOriginal) {
+            pool.add("Original");
+            pool.add("Original");
+        }
+
+        return pool.get((int) (Math.random() * pool.size()));
+    }
+
     private String[] fetchImageFromSource(String outputDir) {
         SharedPreferences prefs = getSharedPreferences("mobimorphoun_prefs", MODE_PRIVATE);
         String enabledSourcesStr = prefs.getString("enabledImageSources", "");
@@ -532,8 +570,8 @@ public class WallpaperService extends Service {
                     case "PicSum":
                         path = fetchPicSumImage(outputDir);
                         break;
-                    case "Unsplash":
-                        path = fetchUnsplashImage(outputDir);
+                    case "Pexels":
+                        path = fetchPexelsImage(outputDir);
                         break;
                     case "CameraRoll":
                     case "Favorites":
@@ -791,40 +829,37 @@ public class WallpaperService extends Service {
     }
 
     /**
-     * Fetch random image from Unsplash using their internal API.
-     * Grabs latest photos, picks a random free one, downloads the regular-size URL.
+     * Fetch random image from Pexels using their API.
+     * Reads the API key from SharedPreferences (synced from JS config).
      */
-    private String fetchUnsplashImage(String outputDir) {
+    private String fetchPexelsImage(String outputDir) {
         try {
-            // Random page offset for variety
-            int page = 1 + (int)(Math.random() * 10);
-            String apiUrl = "https://unsplash.com/napi/photos?per_page=30&order_by=latest&page=" + page;
+            SharedPreferences prefs = getSharedPreferences("mobimorphoun_prefs", MODE_PRIVATE);
+            String apiKey = prefs.getString("apiKey_pexels", "");
+
+            if (apiKey.isEmpty()) {
+                Log.w(TAG, "Pexels: no API key configured");
+                updateNotification("Pexels needs an API key — add it in Settings");
+                return null;
+            }
+
+            int page = 1 + (int)(Math.random() * 50);
+            String apiUrl = "https://api.pexels.com/v1/curated?per_page=30&page=" + page;
+
             HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
-            conn.setInstanceFollowRedirects(true);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(15000);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.110 Mobile Safari/537.36");
-            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
-            conn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
-            conn.setRequestProperty("Accept-Encoding", "identity");
-            conn.setRequestProperty("Connection", "keep-alive");
+            conn.setRequestProperty("Authorization", apiKey);
+            conn.setRequestProperty("User-Agent", "MobiMorphoun/1.0");
             conn.connect();
 
             int responseCode = conn.getResponseCode();
-            Log.i(TAG, "Unsplash API response code: " + responseCode);
             if (responseCode != 200) {
-                // Log response body for debugging
-                try {
-                    InputStream errIn = conn.getErrorStream();
-                    if (errIn != null) {
-                        byte[] errBuf = new byte[512];
-                        int errLen = errIn.read(errBuf);
-                        if (errLen > 0) Log.w(TAG, "Unsplash error body: " + new String(errBuf, 0, errLen));
-                        errIn.close();
-                    }
-                } catch (Exception ignored) {}
                 conn.disconnect();
-                Log.w(TAG, "Unsplash API returned: " + responseCode);
+                Log.w(TAG, "Pexels API returned: " + responseCode);
+                if (responseCode == 401 || responseCode == 403) {
+                    updateNotification("Pexels API key invalid — check Settings");
+                }
                 return null;
             }
 
@@ -838,38 +873,35 @@ public class WallpaperService extends Service {
             conn.disconnect();
             String json = baos.toString("UTF-8");
 
-            // Extract "regular" URLs from non-premium photos
-            // Look for entries where "premium":false and grab "regular":"url"
+            // Extract "portrait" URLs (phone-sized) from the photos array
             java.util.List<String> imageUrls = new java.util.ArrayList<>();
+            String searchToken = "\"portrait\":\"";
             int searchFrom = 0;
             while (true) {
-                // Find next "regular" URL
-                int idx = json.indexOf("\"regular\":\"", searchFrom);
+                int idx = json.indexOf(searchToken, searchFrom);
                 if (idx < 0) break;
-                int start = idx + 11;
+                int start = idx + searchToken.length();
                 int end = json.indexOf("\"", start);
                 if (end < 0) break;
-                String url = json.substring(start, end).replace("\\u0026", "&");
-
-                // Only include images.unsplash.com (skip plus.unsplash.com which are premium)
-                if (url.contains("images.unsplash.com")) {
+                String url = json.substring(start, end).replace("\\/", "/");
+                if (!url.isEmpty()) {
                     imageUrls.add(url);
                 }
                 searchFrom = end + 1;
             }
 
             if (imageUrls.isEmpty()) {
-                Log.w(TAG, "Unsplash: no free images found");
+                Log.w(TAG, "Pexels: no images found in response");
                 return null;
             }
 
             // Pick a random one
             String imageUrl = imageUrls.get((int)(Math.random() * imageUrls.size()));
-            Log.i(TAG, "Unsplash image URL: " + imageUrl.substring(0, Math.min(80, imageUrl.length())) + "...");
+            Log.i(TAG, "Pexels picked: " + imageUrl.substring(0, Math.min(80, imageUrl.length())) + "...");
 
-            return downloadToFile(imageUrl, outputDir, "unsplash_" + System.currentTimeMillis() + ".jpg");
+            return downloadToFile(imageUrl, outputDir, "pexels_" + System.currentTimeMillis() + ".jpg");
         } catch (Exception e) {
-            Log.e(TAG, "Unsplash fetch failed", e);
+            Log.e(TAG, "Pexels fetch failed", e);
             return null;
         }
     }

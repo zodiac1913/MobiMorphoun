@@ -11,8 +11,86 @@ import { Platform, NativeModules } from 'react-native';
 import { getConfig, saveConfig } from './configService';
 import { MobiConfig } from '../types/config';
 import { generateNewWallpaper } from './wallpaperService';
-import { updateCurrentQuote } from './quoteService';
+import { updateCurrentQuote, getEnabledQuotePool } from './quoteService';
 import { logEntry } from './logService';
+
+/**
+ * Build the comma-separated list of enabled filter names from config,
+ * mirroring filterService.getEnabledFilters (minus the Original weighting,
+ * which the native side applies itself).
+ */
+function buildEnabledFiltersString(config: MobiConfig): string {
+  const filters: string[] = [];
+  if (config.wallpaperFilterOriginal) filters.push('Original');
+  if (config.wallpaperFilterBlurSoft) filters.push('BlurSoft');
+  if (config.wallpaperFilterBlurHard) filters.push('BlurHard');
+  if (config.wallpaperFilterPixelate) filters.push('Pixelate');
+  if (config.wallpaperFilterMonochrome) filters.push('Monochrome');
+  if (config.wallpaperFilterCartoon) filters.push('Cartoon');
+  if (config.wallpaperFilterWavy) filters.push('Wavy');
+  if (config.wallpaperFilterVortex) filters.push('Vortex');
+  if (config.wallpaperFilterMosaic) filters.push('Mosaic');
+  if (config.wallpaperFilterJigsawPuzzle) filters.push('JigsawPuzzle');
+  if (config.wallpaperFilterGraffiti) filters.push('Graffiti');
+  if (config.wallpaperFilterOilify) filters.push('Oilify');
+  if (config.wallpaperFilterCyberpunk) filters.push('Cyberpunk');
+  return filters.join(',');
+}
+
+/**
+ * Sync the enabled wallpaper filters to the native service so the background
+ * timer only applies filters the user turned on.
+ */
+export async function syncFiltersToNative(config?: MobiConfig): Promise<void> {
+  if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager?.syncEnabledFilters) {
+    try {
+      const cfg = config || getConfig();
+      const enabledFilters = buildEnabledFiltersString(cfg);
+      await NativeModules.WallpaperServiceManager.syncEnabledFilters(enabledFilters);
+      logEntry('INFO', 'Scheduler', 'syncFilters', `Filters synced: ${enabledFilters}`);
+    } catch (err) {
+      console.warn('Failed to sync filters:', err);
+    }
+  }
+}
+
+/**
+ * Sync the pool of quotes from the user's enabled quote libraries to the
+ * native service. Sent as newline-separated "statement|author" entries.
+ */
+export async function syncQuotesToNative(config?: MobiConfig): Promise<void> {
+  if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager?.syncQuotes) {
+    try {
+      const pool = await getEnabledQuotePool();
+      // Sanitize: strip newlines/pipes from within statements so the
+      // delimiter-based format stays intact on the native side.
+      const blob = pool
+        .map(q => {
+          const statement = (q.statement || '').replace(/[\r\n|]+/g, ' ').trim();
+          const author = (q.author || '').replace(/[\r\n|]+/g, ' ').trim();
+          return `${statement}|${author}`;
+        })
+        .filter(line => line.length > 1)
+        .join('\n');
+      await NativeModules.WallpaperServiceManager.syncQuotes(blob);
+      logEntry('INFO', 'Scheduler', 'syncQuotes', `Quotes synced: ${pool.length} entries`);
+    } catch (err) {
+      console.warn('Failed to sync quotes:', err);
+    }
+  }
+}
+
+/**
+ * Sync the full config (sources, filters, quotes, API keys) to the native
+ * service. Call whenever settings change so the background service stays in
+ * step with what the user configured.
+ */
+export async function syncConfigToNative(config?: MobiConfig): Promise<void> {
+  const cfg = config || getConfig();
+  await syncImageSourcesToNative(cfg);
+  await syncFiltersToNative(cfg);
+  await syncQuotesToNative(cfg);
+}
 
 export const WALLPAPER_TASK = 'MOBIMORPHOUN_WALLPAPER_CHANGE';
 export const QUOTE_TASK = 'MOBIMORPHOUN_QUOTE_CHANGE';
@@ -119,13 +197,9 @@ export async function initializeSchedulers(): Promise<void> {
   if (Platform.OS === 'android' && NativeModules.WallpaperServiceManager) {
     try {
       await NativeModules.WallpaperServiceManager.startService(config.changeMinutes, config.textChangeMinutes);
-      // Sync enabled image sources to native service
-      const enabledSources = config.images
-        .filter(img => img.use)
-        .map(img => img.name)
-        .join(',');
-      await NativeModules.WallpaperServiceManager.syncImageSources(enabledSources);
-      logEntry('INFO', 'Scheduler', 'init', `Native service started (pic=${config.changeMinutes}min, quote=${config.textChangeMinutes}min, sources=${enabledSources})`);
+      // Sync the full config (sources, filters, quotes, API keys) to native service
+      await syncConfigToNative(config);
+      logEntry('INFO', 'Scheduler', 'init', `Native service started (pic=${config.changeMinutes}min, quote=${config.textChangeMinutes}min)`);
     } catch (err) {
       console.warn('Failed to start native wallpaper service:', err);
     }
@@ -213,13 +287,9 @@ export async function restartServiceWithInterval(minutes: number): Promise<void>
       const config = getConfig();
       await NativeModules.WallpaperServiceManager.stopService();
       await NativeModules.WallpaperServiceManager.startService(minutes, config.textChangeMinutes);
-      // Sync enabled image sources to native service
-      const enabledSources = config.images
-        .filter(img => img.use)
-        .map(img => img.name)
-        .join(',');
-      await NativeModules.WallpaperServiceManager.syncImageSources(enabledSources);
-      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (pic=${minutes}min, quote=${config.textChangeMinutes}min, sources=${enabledSources})`);
+      // Sync the full config (sources, filters, quotes, API keys) to native service
+      await syncConfigToNative(config);
+      logEntry('INFO', 'Scheduler', 'restart', `Service restarted (pic=${minutes}min, quote=${config.textChangeMinutes}min)`);
     } catch (err) {
       console.warn('Failed to restart service:', err);
     }
@@ -242,6 +312,10 @@ export async function syncImageSourcesToNative(config?: MobiConfig): Promise<voi
         .map(img => img.name)
         .join(',');
       await NativeModules.WallpaperServiceManager.syncImageSources(enabledSources);
+      // Also sync API keys
+      if (cfg.pexelsApiKey) {
+        await NativeModules.WallpaperServiceManager.syncApiKey('pexels', cfg.pexelsApiKey);
+      }
       logEntry('INFO', 'Scheduler', 'syncSources', `Sources synced: ${enabledSources}`);
     } catch (err) {
       console.warn('Failed to sync image sources:', err);

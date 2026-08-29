@@ -148,6 +148,57 @@ public class WallpaperServiceModule extends ReactContextBaseJavaModule {
     }
 
     /**
+     * Sync enabled wallpaper filters to SharedPreferences so the native service
+     * only applies filters the user has turned on.
+     * Expects a comma-separated string like "Original,BlurSoft,Cyberpunk".
+     */
+    @ReactMethod
+    public void syncEnabledFilters(String enabledFilters, Promise promise) {
+        try {
+            SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
+            prefs.edit().putString("enabledFilters", enabledFilters).apply();
+            Log.i("MobiWallpaper", "Enabled filters synced: " + enabledFilters);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("SYNC_ERROR", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Sync the pool of quotes (from the user's enabled quote libraries) to
+     * SharedPreferences so the native service renders quotes the user chose.
+     * Each quote is "statement|author", quotes separated by newlines.
+     */
+    @ReactMethod
+    public void syncQuotes(String quotesBlob, Promise promise) {
+        try {
+            SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
+            prefs.edit().putString("enabledQuotes", quotesBlob).apply();
+            Log.i("MobiWallpaper", "Quotes synced: " + quotesBlob.split("\n").length + " entries");
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("SYNC_ERROR", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Sync an API key to SharedPreferences.
+     * @param service The service name (e.g. "pexels", "unsplash")
+     * @param apiKey The API key value
+     */
+    @ReactMethod
+    public void syncApiKey(String service, String apiKey, Promise promise) {
+        try {
+            SharedPreferences prefs = reactContext.getSharedPreferences("mobimorphoun_prefs", 0);
+            prefs.edit().putString("apiKey_" + service, apiKey).apply();
+            Log.i("MobiWallpaper", "API key synced for: " + service);
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("SYNC_ERROR", e.getMessage(), e);
+        }
+    }
+
+    /**
      * Save a file to DCIM/MobiMorphoun/Favorites.
      * The JS side can't write to external storage, so this does it natively.
      */

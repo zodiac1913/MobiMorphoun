@@ -1,6 +1,6 @@
 /**
  * Image Source Service
- * Fetches wallpaper images from various sources (Bing, NASA, PicSum, Unsplash, local folders).
+ * Fetches wallpaper images from various sources (Bing, NASA, PicSum, Pexels, local folders).
  * Mirrors Metamorphoun's serviceBing.go, serviceNASA.go, servicePicSum.go, etc.
  */
 
@@ -49,8 +49,6 @@ export async function fetchRandomImage(): Promise<FetchedImage> {
           return await fetchNASAImage(source);
         case 'PicSum':
           return await fetchPicSumImage(source);
-        case 'Unsplash':
-          return await fetchUnsplashImage(source);
         case 'CameraRoll':
           return await fetchCameraRollImage(source);
         case 'Favorites':
@@ -142,20 +140,6 @@ async function fetchPicSumImage(source: ImageSource): Promise<FetchedImage> {
 
   const localUri = await downloadImage(imageUrl, `picsum_${Date.now()}.jpg`);
   return { uri: localUri, source, originalUrl: imageUrl };
-}
-
-/**
- * Unsplash random photo
- */
-async function fetchUnsplashImage(source: ImageSource): Promise<FetchedImage> {
-  try {
-    const imageUrl = 'https://source.unsplash.com/random/1080x1920';
-    const localUri = await downloadImage(imageUrl, `unsplash_${Date.now()}.jpg`);
-    return { uri: localUri, source, originalUrl: imageUrl };
-  } catch (err) {
-    console.warn('Unsplash fetch failed:', err);
-    return fetchPicSumImage(source);
-  }
 }
 
 /**

@@ -76,6 +76,7 @@ export interface MobiConfig {
 
   // Image sources
   images: ImageSource[];
+  pexelsApiKey: string;
   wallpaperImageSizing: ImageSizing;
 
   // Filters
@@ -90,6 +91,7 @@ export interface MobiConfig {
   wallpaperFilterJigsawPuzzle: boolean;
   wallpaperFilterGraffiti: boolean;
   wallpaperFilterCartoon: boolean;
+  wallpaperFilterCyberpunk: boolean;
   wallpaperFilterMonochrome: boolean;
 
   // Text overlay
@@ -113,11 +115,6 @@ export interface MobiConfig {
   picHistories: PicHistory[];
   picUpdateCalled: boolean;
   backgroundChangeAttempt: number;
-
-  // MBC Mode
-  mbcMode: boolean;
-  mbcMonth: number;
-  mbcValue: number;
 }
 
 export const DEFAULT_CONFIG: MobiConfig = {
@@ -174,15 +171,16 @@ export const DEFAULT_CONFIG: MobiConfig = {
     },
     {
       use: false,
-      name: 'Unsplash',
-      title: 'Unsplash (Random Photos)',
-      location: 'https://unsplash.com',
+      name: 'Pexels',
+      title: 'Pexels (API Key Required)',
+      location: 'https://www.pexels.com',
       operation: 'WebPicPage',
       allowDistort: true,
       inherent: true,
     },
   ],
   wallpaperImageSizing: 'fill',
+  pexelsApiKey: '',
 
   wallpaperFilterOriginal: true,
   wallpaperFilterBlurSoft: true,
@@ -195,6 +193,7 @@ export const DEFAULT_CONFIG: MobiConfig = {
   wallpaperFilterJigsawPuzzle: false,
   wallpaperFilterGraffiti: false,
   wallpaperFilterCartoon: true,
+  wallpaperFilterCyberpunk: false,
   wallpaperFilterMonochrome: true,
 
   showTextOverlay: true,
@@ -234,8 +233,4 @@ export const DEFAULT_CONFIG: MobiConfig = {
   picHistories: [],
   picUpdateCalled: false,
   backgroundChangeAttempt: 0,
-
-  mbcMode: false,
-  mbcMonth: 1,
-  mbcValue: 0,
 };

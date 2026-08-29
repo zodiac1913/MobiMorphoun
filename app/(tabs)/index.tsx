@@ -24,7 +24,7 @@ import {
   recallWallpaper,
   getCurrentWallpaperInfo,
 } from '../../src/services/wallpaperService';
-import { syncImageSourcesToNative } from '../../src/services/schedulerService';
+import { syncConfigToNative } from '../../src/services/schedulerService';
 import { PicHistory } from '../../src/types/config';
 import { APP_VERSION } from '../../src/version';
 
@@ -113,8 +113,8 @@ export default function WallpaperScreen() {
     try {
       // Trigger Java service to change wallpaper
       if (NativeModules.WallpaperServiceManager) {
-        // Sync sources to SharedPreferences before triggering change
-        await syncImageSourcesToNative();
+        // Sync full config (sources, filters, quotes, API keys) before triggering change
+        await syncConfigToNative();
         await NativeModules.WallpaperServiceManager.changeNow();
         // Wait a moment for the service to finish, then refresh display
         setTimeout(() => {

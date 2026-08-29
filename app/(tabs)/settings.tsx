@@ -13,12 +13,13 @@ import {
   TouchableOpacity,
   Pressable,
   Alert,
+  TextInput,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { MobiConfig, WallpaperTarget, ImageSizing, TextBoxLocation } from '../../src/types/config';
 import { getConfig, saveConfig, resetConfig } from '../../src/services/configService';
-import { restartServiceWithInterval, syncImageSourcesToNative } from '../../src/services/schedulerService';
+import { restartServiceWithInterval, syncImageSourcesToNative, syncFiltersToNative, syncQuotesToNative } from '../../src/services/schedulerService';
 
 /**
  * Button that fires on tap and repeats while held down.
@@ -64,9 +65,19 @@ export default function SettingsScreen() {
       await restartServiceWithInterval(value as number);
     }
 
-    // Sync image sources to native service when they change
-    if (key === 'images') {
+    // Sync image sources / API keys to native service when they change
+    if (key === 'images' || key === 'pexelsApiKey') {
       await syncImageSourcesToNative(updated);
+    }
+
+    // Sync enabled filters to native service when a filter toggle changes
+    if (typeof key === 'string' && key.startsWith('wallpaperFilter')) {
+      await syncFiltersToNative(updated);
+    }
+
+    // Sync the quote pool when quote libraries or the char limit change
+    if (key === 'textLibraries' || key === 'quoteMaxChars') {
+      await syncQuotesToNative(updated);
     }
   };
 
@@ -147,6 +158,26 @@ export default function SettingsScreen() {
         ))}
       </View>
 
+      {/* API Keys */}
+      <Text style={styles.sectionTitle}>API Keys</Text>
+      <View style={styles.card}>
+        <View style={styles.apiKeyRow}>
+          <Text style={styles.apiKeyLabel}>Pexels API Key</Text>
+          <TextInput
+            style={styles.apiKeyInput}
+            value={config.pexelsApiKey || ''}
+            onChangeText={(text) => updateField('pexelsApiKey', text)}
+            placeholder="Enter your Pexels API key"
+            placeholderTextColor="#64748b"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Text style={styles.apiKeyHint}>
+            Get a free key at pexels.com/api
+          </Text>
+        </View>
+      </View>
+
       {/* Filters */}
       <Text style={styles.sectionTitle}>Filters</Text>
       <View style={styles.card}>
@@ -162,6 +193,7 @@ export default function SettingsScreen() {
         <FilterToggle label="Jigsaw" field="wallpaperFilterJigsawPuzzle" config={config} update={updateField} />
         <FilterToggle label="Graffiti" field="wallpaperFilterGraffiti" config={config} update={updateField} />
         <FilterToggle label="Oilify" field="wallpaperFilterOilify" config={config} update={updateField} />
+        <FilterToggle label="Cyberpunk" field="wallpaperFilterCyberpunk" config={config} update={updateField} />
       </View>
 
       {/* Quote Overlay */}
@@ -373,5 +405,28 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 15,
     fontWeight: '600',
+  },
+  apiKeyRow: {
+    paddingVertical: 12,
+  },
+  apiKeyLabel: {
+    color: '#e2e8f0',
+    fontSize: 15,
+    marginBottom: 8,
+  },
+  apiKeyInput: {
+    backgroundColor: '#2d2d44',
+    color: '#e2e8f0',
+    fontSize: 14,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#3d3d5c',
+  },
+  apiKeyHint: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 6,
   },
 });
